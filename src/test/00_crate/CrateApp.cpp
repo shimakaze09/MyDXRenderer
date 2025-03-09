@@ -76,7 +76,6 @@ struct RenderItem {
 
   Material* Mat = nullptr;
   My::DX12::MeshGeometry* Geo = nullptr;
-  // std::string Geo;
 
   // Primitive topology.
   D3D12_PRIMITIVE_TOPOLOGY PrimitiveType =
@@ -128,23 +127,17 @@ class CrateApp : public D3DApp {
   std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
  private:
-  // std::vector<std::unique_ptr<FrameResource>> mFrameResources;
   std::vector<std::unique_ptr<My::DX12::FrameResource>> mFrameResources;
   My::DX12::FrameResource* mCurrFrameResource = nullptr;
   int mCurrFrameResourceIndex = 0;
-
-  // UINT mCbvSrvDescriptorSize = 0;
 
   ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
 
   // ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
   My::DX12::DescriptorHeapAllocation mSrvDescriptorHeap;
 
-  // std::unordered_map<std::string, std::unique_ptr<My::DX12::MeshGeometry>>
-  // mGeometries;
   std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
   std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
-  // std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
 
   std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
@@ -169,7 +162,6 @@ class CrateApp : public D3DApp {
   POINT mLastMousePos;
 
   // frame graph
-  My::DX12::FG::RsrcMngr fgRsrcMngr;
   My::DX12::FG::Executor fgExecutor;
   My::FG::Compiler fgCompiler;
   My::FG::FrameGraph fg;
@@ -209,15 +201,8 @@ bool CrateApp::Initialize() {
   My::DX12::DescriptorHeapMngr::Instance().Init(uDevice.raw.Get(), 1024, 1024,
                                                 1024, 1024, 1024);
 
-  fgRsrcMngr.Init(uGCmdList, uDevice);
-
   // Reset the command list to prep for initialization commands.
   ThrowIfFailed(uGCmdList->Reset(mDirectCmdListAlloc.Get(), nullptr));
-
-  // Get the increment size of a descriptor in this heap type.  This is hardware
-  // specific, so we have to query this information.
-  // mCbvSrvDescriptorSize =
-  // uDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
   My::DXRenderer::Instance().GetUpload().Begin();
 
@@ -251,6 +236,12 @@ void CrateApp::OnResize() {
   XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(),
                                         1.0f, 1000.0f);
   XMStoreFloat4x4(&mProj, P);
+
+  auto clearFGRsrcMngr = [](void* rsrcMngr) {
+    reinterpret_cast<My::DX12::FG::RsrcMngr*>(rsrcMngr)->Clear();
+  };
+  for (auto& frsrc : mFrameResources)
+    frsrc->DelayUpdateResource("FrameGraphRsrcMngr", clearFGRsrcMngr);
 }
 
 void CrateApp::Update(const GameTimer& gt) {
@@ -264,15 +255,6 @@ void CrateApp::Update(const GameTimer& gt) {
   // Has the GPU finished processing the commands of the current frame resource?
   // If not, wait until the GPU has completed commands up to this fence point.
   mCurrFrameResource->Wait();
-  /*if(mCurrFrameResource->Fence != 0 && mFence->GetCompletedValue() <
-  mCurrFrameResource->Fence)
-  {
-      HANDLE eventHandle = CreateEventEx(nullptr, false, false,
-  EVENT_ALL_ACCESS);
-      ThrowIfFailed(mFence->SetEventOnCompletion(mCurrFrameResource->Fence,
-  eventHandle)); WaitForSingleObject(eventHandle, INFINITE);
-      CloseHandle(eventHandle);
-  }*/
 
   AnimateMaterials(gt);
   UpdateObjectCBs(gt);
@@ -300,7 +282,9 @@ void CrateApp::Draw(const GameTimer& gt) {
   uGCmdList->RSSetScissorRects(1, &mScissorRect);
 
   fg.Clear();
-  fgRsrcMngr.NewFrame();
+  auto fgRsrcMngr = mCurrFrameResource->GetResource<My::DX12::FG::RsrcMngr>(
+      "FrameGraphRsrcMngr");
+  fgRsrcMngr->NewFrame();
   fgExecutor.NewFrame();
   ;
 
@@ -314,7 +298,7 @@ void CrateApp::Draw(const GameTimer& gt) {
   dsvDesc.Format = mDepthStencilFormat;
   dsvDesc.Texture2D.MipSlice = 0;
 
-  fgRsrcMngr
+  (*fgRsrcMngr)
       .RegisterImportedRsrc(backbuffer,
                             {CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT})
       .RegisterImportedRsrc(depthstencil, {mDepthStencilBuffer.Get(),
@@ -350,39 +334,8 @@ void CrateApp::Draw(const GameTimer& gt) {
     DrawRenderItems(uGCmdList.raw.Get(), mOpaqueRitems);
   });
 
-  //   // Indicate a state transition on the resource usage.
-  // uGCmdList->ResourceBarrier(1,
-  // &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-  //	D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-  //   // Clear the back buffer and depth buffer.
-  //   uGCmdList->ClearRenderTargetView(CurrentBackBufferView(),
-  //   Colors::LightSteelBlue, 0, nullptr);
-  //   uGCmdList->ClearDepthStencilView(DepthStencilView(),
-  //   D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-
-  //   // Specify the buffers we are going to render to.
-  //   uGCmdList->OMSetRenderTargets(1, &CurrentBackBufferView(), true,
-  //   &DepthStencilView());
-
-  // ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
-  // uGCmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-  // uGCmdList->SetGraphicsRootSignature(mRootSignature.Get());
-
-  // auto passCB = mCurrFrameResource->PassCB->GetResource();
-  // uGCmdList->SetGraphicsRootConstantBufferView(2,
-  // passCB->GetGPUVirtualAddress());
-
-  //   DrawRenderItems(uGCmdList.raw.Get(), mOpaqueRitems);
-
-  //   // Indicate a state transition on the resource usage.
-  // uGCmdList->ResourceBarrier(1,
-  // &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-  //	D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
-
   auto [success, crst] = fgCompiler.Compile(fg);
-  fgExecutor.Execute(fg, crst, fgRsrcMngr);
+  fgExecutor.Execute(crst, *fgRsrcMngr);
 
   // Done recording commands.
   ThrowIfFailed(uGCmdList->Close());
@@ -394,14 +347,6 @@ void CrateApp::Draw(const GameTimer& gt) {
   ThrowIfFailed(mSwapChain->Present(0, 0));
   mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
-  // Advance the fence value to mark commands up to this fence point.
-  // mCurrFrameResource->Fence = ++mCurrentFence;
-
-  // Add an instruction to the command queue to set a new fence point.
-  // Because we are on the GPU timeline, the new fence point won't be
-  // set until the GPU finishes processing all the commands prior to this
-  /// Signal().
-  // uCmdQueue->Signal(mFence.Get(), mCurrentFence);
   mCurrFrameResource->Signal(uCmdQueue.raw.Get(), ++mCurrentFence);
 }
 
@@ -556,14 +501,6 @@ void CrateApp::UpdateMainPassCB(const GameTimer& gt) {
 }
 
 void CrateApp::LoadTextures() {
-  /*auto woodCrateTex = std::make_unique<Texture>();
-  woodCrateTex->Name = "woodCrateTex";
-  woodCrateTex->Filename = L"../data/textures/WoodCrate01.dds";
-  ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(uDevice.raw.Get(),
-          uGCmdList.raw.Get(), woodCrateTex->Filename.c_str(),
-          woodCrateTex->Resource, woodCrateTex->UploadHeap));
-
-  mTextures[woodCrateTex->Name] = std::move(woodCrateTex);*/
   My::DXRenderer::Instance().RegisterDDSTextureFromFile(
       My::DXRenderer::Instance().GetUpload(), "woodCrateTex",
       L"../data/textures/WoodCrate01.dds");
@@ -611,39 +548,9 @@ void CrateApp::BuildRootSignature() {
       IID_PPV_ARGS(mRootSignature.GetAddressOf())));
 }
 
-void CrateApp::BuildDescriptorHeaps() {
-  //
-  // Create the SRV heap.
-  //
-  /*D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-  srvHeapDesc.NumDescriptors = 1;
-  srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-  srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-  ThrowIfFailed(uDevice->CreateDescriptorHeap(&srvHeapDesc,
-  IID_PPV_ARGS(&mSrvDescriptorHeap)));*/
-
-  // mSrvDescriptorHeap =
-  // My::DX12::DescriptorHeapMngr::Instance().GetCSUGpuDH()->Allocate(1);
-
-  ////
-  //// Fill out the heap with actual descriptors.
-  ////
-  ///*CD3DX12_CPU_DESCRIPTOR_HANDLE
-  /// hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());*/
-  // CD3DX12_CPU_DESCRIPTOR_HANDLE
-  // hDescriptor(mSrvDescriptorHeap.GetCpuHandle());
-
-  // auto woodCrateTex = mTextures["woodCrateTex"]->Resource;
-  //
-  // uDevice.CreateSRV_Tex2D(woodCrateTex.Get(), hDescriptor);
-}
+void CrateApp::BuildDescriptorHeaps() {}
 
 void CrateApp::BuildShadersAndInputLayout() {
-  // mShaders["standardVS"] =
-  // My::DX12::Util::CompileShader(L"..\\data\\shaders\\00_crate\\Default.hlsl",
-  // nullptr, "VS", "vs_5_0"); mShaders["opaquePS"] =
-  // My::DX12::Util::CompileShader(L"..\\data\\shaders\\00_crate\\Default.hlsl",
-  // nullptr, "PS", "ps_5_0");
   My::DXRenderer::Instance().RegisterShaderByteCode(
       "standardVS", L"..\\data\\shaders\\00_crate\\Default.hlsl", nullptr, "VS",
       "vs_5_0");
@@ -683,40 +590,6 @@ void CrateApp::BuildShapeGeometry() {
   const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
   const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
 
-  //  auto geo = std::make_unique<My::DX12::MeshGeometry>();
-  //  geo->Name = "boxGeo";
-  //
-  //  ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-  //  CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(),
-  //  vbByteSize);
-  //
-  //  ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-  //  CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(),
-  //  ibByteSize);
-  //
-  //  geo->VertexBufferGPU =
-  //  My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(),
-  //          uGCmdList.raw.Get(), vertices.data(), vbByteSize,
-  //  geo->VertexBufferUploader);
-  //
-  //  geo->IndexBufferGPU =
-  //  My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(),
-  //          uGCmdList.raw.Get(), indices.data(), ibByteSize,
-  //  geo->IndexBufferUploader);
-  //
-  //  geo->VertexByteStride = sizeof(Vertex);
-  //  geo->VertexBufferByteSize = vbByteSize;
-  //  geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-  //  geo->IndexBufferByteSize = ibByteSize;
-
-  //  geo->InitBuffer(uDevice.raw.Get(), My::DXRenderer::Instance().GetUpload(),
-  //          vertices.data(), (UINT)vertices.size(), sizeof(Vertex),
-  //          indices.data(), (UINT)indices.size(), DXGI_FORMAT_R16_UINT);
-  //
-  //  geo->submeshGeometries["box"] = boxSubmesh;
-  //
-  //  mGeometries[geo->Name] = std::move(geo);
-
   My::DXRenderer::Instance()
       .RegisterStaticMeshGeometry(
           My::DXRenderer::Instance().GetUpload(), "boxGeo", vertices.data(),
@@ -726,37 +599,11 @@ void CrateApp::BuildShapeGeometry() {
 }
 
 void CrateApp::BuildPSOs() {
-  D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
-
-  //
-  // PSO for opaque objects.
-  //
-  ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-  opaquePsoDesc.InputLayout = {mInputLayout.data(), (UINT)mInputLayout.size()};
-  opaquePsoDesc.pRootSignature = mRootSignature.Get();
-  opaquePsoDesc.VS = {
-      reinterpret_cast<BYTE*>(My::DXRenderer::Instance()
-                                  .GetShaderByteCode("standardVS")
-                                  ->GetBufferPointer()),
-      My::DXRenderer::Instance()
-          .GetShaderByteCode("standardVS")
-          ->GetBufferSize()};
-  opaquePsoDesc.PS = {reinterpret_cast<BYTE*>(My::DXRenderer::Instance()
-                                                  .GetShaderByteCode("opaquePS")
-                                                  ->GetBufferPointer()),
-                      My::DXRenderer::Instance()
-                          .GetShaderByteCode("opaquePS")
-                          ->GetBufferSize()};
-  opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-  opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-  opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-  opaquePsoDesc.SampleMask = UINT_MAX;
-  opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-  opaquePsoDesc.NumRenderTargets = 1;
-  opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
-  opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-  opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-  opaquePsoDesc.DSVFormat = mDepthStencilFormat;
+  auto opaquePsoDesc = My::DX12::Desc::PSO::Basic(
+      mRootSignature.Get(), mInputLayout.data(), (UINT)mInputLayout.size(),
+      My::DXRenderer::Instance().GetShaderByteCode("standardVS"),
+      My::DXRenderer::Instance().GetShaderByteCode("opaquePS"),
+      mBackBufferFormat, mDepthStencilFormat);
   ThrowIfFailed(uDevice->CreateGraphicsPipelineState(
       &opaquePsoDesc, IID_PPV_ARGS(&mOpaquePSO)));
 }
@@ -785,24 +632,11 @@ void CrateApp::BuildFrameResources() {
                          new My::DX12::ArrayUploadBuffer<ObjectConstants>{
                              uDevice.raw.Get(), mAllRitems.size(), true});
 
-    mFrameResources.emplace_back(std::move(fr));
+    auto fgRsrcMngr = new My::DX12::FG::RsrcMngr;
+    fgRsrcMngr->Init(uGCmdList, uDevice);
+    fr->RegisterResource("FrameGraphRsrcMngr", fgRsrcMngr);
 
-    // We cannot update a cbuffer until the GPU is done processing the commands
-    // that reference it.  So each frame needs their own cbuffers.
-    // std::unique_ptr<My::DX12::ArrayUploadBuffer<FrameConstants>> FrameCB =
-    // nullptr;
-    //    *std::unique_ptr<My::DX12::ArrayUploadBuffer<PassConstants>> PassCB =
-    //        nullptr;
-    //    std::unique_ptr<My::DX12::ArrayUploadBuffer<MaterialConstants>>
-    //    MaterialCB =
-    //        nullptr;
-    //    std::unique_ptr<My::DX12::ArrayUploadBuffer<ObjectConstants>> ObjectCB
-    //    =
-    //        nullptr;
-    //
-    //    mFrameResources.push_back(std::make_unique<FrameResource>(
-    //        uDevice.raw.Get(), 1, (UINT)mAllRitems.size(),
-    //        (UINT)mMaterials.size()));
+    mFrameResources.emplace_back(std::move(fr));
   }
 }
 
@@ -861,11 +695,6 @@ void CrateApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList,
     cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
     cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
     cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
-
-    // CD3DX12_GPU_DESCRIPTOR_HANDLE
-    //  * tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-    // CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap.GetGpuHandle());
-    // tex.Offset(ri->Mat->DiffuseSrvGpuHandle, mCbvSrvDescriptorSize);
 
     D3D12_GPU_VIRTUAL_ADDRESS objCBAddress =
         objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
