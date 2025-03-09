@@ -24,7 +24,10 @@ class DXRenderer {
   // support tex2d and tex cube
   DXRenderer& RegisterDDSTextureFromFile(DirectX::ResourceUploadBatch& upload,
                                          std::string name,
-                                         std::wstring filename);
+                                         std::wstring_view filename);
+  DXRenderer& RegisterDDSTextureArrayFromFile(
+      DirectX::ResourceUploadBatch& upload, std::string name,
+      const std::wstring_view* filenameArr, UINT num);
 
   DX12::MeshGeometry& RegisterStaticMeshGeometry(
       DirectX::ResourceUploadBatch& upload, std::string name,
@@ -60,10 +63,10 @@ class DXRenderer {
   DXRenderer& RegisterRenderTextureCube(std::string name, UINT size,
                                         DXGI_FORMAT format);
 
-  D3D12_CPU_DESCRIPTOR_HANDLE GetTextureSrvCpuHandle(
-      const std::string& name) const;
-  D3D12_GPU_DESCRIPTOR_HANDLE GetTextureSrvGpuHandle(
-      const std::string& name) const;
+  D3D12_CPU_DESCRIPTOR_HANDLE GetTextureSrvCpuHandle(const std::string& name,
+                                                     UINT index = 0) const;
+  D3D12_GPU_DESCRIPTOR_HANDLE GetTextureSrvGpuHandle(const std::string& name,
+                                                     UINT index = 0) const;
 
   DX12::DescriptorHeapAllocation& GetTextureRtvs(const std::string& name) const;
 

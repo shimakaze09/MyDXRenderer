@@ -365,7 +365,7 @@ void DeferApp::Draw(const GameTimer& gt) {
                                        &ds.cpuHandle);
 
         myGCmdList->SetGraphicsRootSignature(
-            My::DXRenderer::Instance().GetRootSignature("default"));
+            My::DXRenderer::Instance().GetRootSignature("geometry"));
 
         auto passCB =
             mCurrFrameResource
@@ -581,15 +581,20 @@ void DeferApp::UpdateMainPassCB(const GameTimer& gt) {
 }
 
 void DeferApp::LoadTextures() {
-  My::DXRenderer::Instance().RegisterDDSTextureFromFile(
-      My::DXRenderer::Instance().GetUpload(), "woodCrateTex",
-      L"../data/textures/WoodCrate01.dds");
+  std::array<std::wstring_view, 3> ironTextures{
+      L"../data/textures/iron/albedo.dds",
+      L"../data/textures/iron/roughness.dds",
+      L"../data/textures/iron/metalness.dds"};
+
+  My::DXRenderer::Instance().RegisterDDSTextureArrayFromFile(
+      My::DXRenderer::Instance().GetUpload(), "iron", ironTextures.data(),
+      ironTextures.size());
 }
 
 void DeferApp::BuildRootSignature() {
-  {  // default
+  {  // geometry
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
@@ -609,7 +614,7 @@ void DeferApp::BuildRootSignature() {
         staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-    My::DXRenderer::Instance().RegisterRootSignature("default", &rootSigDesc);
+    My::DXRenderer::Instance().RegisterRootSignature("geometry", &rootSigDesc);
   }
 
   {  // screen
@@ -729,14 +734,6 @@ void DeferApp::BuildShapeGeometry() {
 }
 
 void DeferApp::BuildPSOs() {
-  auto opaquePsoDesc = My::DX12::Desc::PSO::Basic(
-      My::DXRenderer::Instance().GetRootSignature("default"),
-      mInputLayout.data(), (UINT)mInputLayout.size(),
-      My::DXRenderer::Instance().GetShaderByteCode("standardVS"),
-      My::DXRenderer::Instance().GetShaderByteCode("opaquePS"),
-      mBackBufferFormat, mDepthStencilFormat);
-  My::DXRenderer::Instance().RegisterPSO("opaque", &opaquePsoDesc);
-
   auto screenPsoDesc = My::DX12::Desc::PSO::Basic(
       My::DXRenderer::Instance().GetRootSignature("screen"), nullptr, 0,
       My::DXRenderer::Instance().GetShaderByteCode("screenVS"),
@@ -745,7 +742,7 @@ void DeferApp::BuildPSOs() {
   My::DXRenderer::Instance().RegisterPSO("screen", &screenPsoDesc);
 
   auto geometryPsoDesc = My::DX12::Desc::PSO::MRT(
-      My::DXRenderer::Instance().GetRootSignature("default"),
+      My::DXRenderer::Instance().GetRootSignature("geometry"),
       mInputLayout.data(), (UINT)mInputLayout.size(),
       My::DXRenderer::Instance().GetShaderByteCode("geometryVS"),
       My::DXRenderer::Instance().GetShaderByteCode("geometryPS"), 3,
@@ -795,10 +792,10 @@ void DeferApp::BuildFrameResources() {
 
 void DeferApp::BuildMaterials() {
   auto woodCrate = std::make_unique<Material>();
-  woodCrate->Name = "woodCrate";
+  woodCrate->Name = "iron";
   woodCrate->MatCBIndex = 0;
   woodCrate->DiffuseSrvGpuHandle =
-      My::DXRenderer::Instance().GetTextureSrvGpuHandle("woodCrateTex");
+      My::DXRenderer::Instance().GetTextureSrvGpuHandle("iron");
   woodCrate->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
   woodCrate->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
   woodCrate->Roughness = 0.2f;

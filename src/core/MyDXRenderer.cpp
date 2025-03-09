@@ -11,7 +11,7 @@ using namespace My;
 
 struct DXRenderer::Impl {
   struct Texture {
-    ID3D12Resource* resource{nullptr};
+    std::vector<ID3D12Resource*> resources;
     DX12::DescriptorHeapAllocation allocationSRV;
     DX12::DescriptorHeapAllocation allocationRTV;
   };
@@ -54,7 +54,8 @@ void DXRenderer::Release() {
     if (!tex.allocationRTV.IsNull())
       DX12::DescriptorHeapMngr::Instance().GetRTVCpuDH()->Free(
           std::move(tex.allocationRTV));
-    tex.resource->Release();
+    for (auto rsrc : tex.resources)
+      rsrc->Release();
   }
 
   for (auto& [name, rootSig] : pImpl->rootSignatureMap)
@@ -80,23 +81,32 @@ DirectX::ResourceUploadBatch& DXRenderer::GetUpload() const {
 
 DXRenderer& DXRenderer::RegisterDDSTextureFromFile(
     DirectX::ResourceUploadBatch& upload, std::string name,
-    std::wstring filename) {
-  Impl::Texture tex;
+    std::wstring_view filename) {
+  return RegisterDDSTextureArrayFromFile(upload, name, &filename, 1);
+}
 
-  bool isCubeMap;
-  DirectX::CreateDDSTextureFromFile(pImpl->device, upload, filename.data(),
-                                    &tex.resource, false, 0, nullptr,
-                                    &isCubeMap);
+DXRenderer& DXRenderer::RegisterDDSTextureArrayFromFile(
+    DirectX::ResourceUploadBatch& upload, std::string name,
+    const std::wstring_view* filenameArr, UINT num) {
+  Impl::Texture tex;
+  tex.resources.resize(num);
 
   tex.allocationSRV =
-      DX12::DescriptorHeapMngr::Instance().GetCSUGpuDH()->Allocate(1);
+      DX12::DescriptorHeapMngr::Instance().GetCSUGpuDH()->Allocate(num);
 
-  D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc =
-      isCubeMap ? DX12::Desc::SRV::TexCube(tex.resource->GetDesc().Format)
-                : DX12::Desc::SRV::Tex2D(tex.resource->GetDesc().Format);
+  for (UINT i = 0; i < num; i++) {
+    bool isCubeMap;
+    DirectX::CreateDDSTextureFromFile(pImpl->device, upload,
+                                      filenameArr[i].data(), &tex.resources[i],
+                                      false, 0, nullptr, &isCubeMap);
 
-  pImpl->device->CreateShaderResourceView(tex.resource, &srvDesc,
-                                          tex.allocationSRV.GetCpuHandle());
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc =
+        isCubeMap ? DX12::Desc::SRV::TexCube(tex.resources[i]->GetDesc().Format)
+                  : DX12::Desc::SRV::Tex2D(tex.resources[i]->GetDesc().Format);
+
+    pImpl->device->CreateShaderResourceView(tex.resources[i], &srvDesc,
+                                            tex.allocationSRV.GetCpuHandle(i));
+  }
 
   pImpl->textureMap.emplace(std::move(name), std::move(tex));
 
@@ -104,13 +114,13 @@ DXRenderer& DXRenderer::RegisterDDSTextureFromFile(
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE DXRenderer::GetTextureSrvCpuHandle(
-    const std::string& name) const {
-  return pImpl->textureMap.find(name)->second.allocationSRV.GetCpuHandle();
+    const std::string& name, UINT index) const {
+  return pImpl->textureMap.find(name)->second.allocationSRV.GetCpuHandle(index);
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE DXRenderer::GetTextureSrvGpuHandle(
-    const std::string& name) const {
-  return pImpl->textureMap.find(name)->second.allocationSRV.GetGpuHandle();
+    const std::string& name, UINT index) const {
+  return pImpl->textureMap.find(name)->second.allocationSRV.GetGpuHandle(index);
 }
 
 DX12::DescriptorHeapAllocation& DXRenderer::GetTextureRtvs(
@@ -162,6 +172,7 @@ DXRenderer& DXRenderer::RegisterRenderTexture2D(std::string name, UINT width,
                                                 UINT height,
                                                 DXGI_FORMAT format) {
   Impl::Texture tex;
+  tex.resources.resize(1);
 
   tex.allocationSRV =
       DX12::DescriptorHeapMngr::Instance().GetCSUGpuDH()->Allocate(1);
@@ -183,10 +194,10 @@ DXRenderer& DXRenderer::RegisterRenderTexture2D(std::string name, UINT width,
   ThrowIfFailed(pImpl->device->CreateCommittedResource(
       &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
       &texDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-      IID_PPV_ARGS(&tex.resource)));
+      IID_PPV_ARGS(&tex.resources[0])));
 
   // create SRV
-  pImpl->device->CreateShaderResourceView(tex.resource,
+  pImpl->device->CreateShaderResourceView(tex.resources[0],
                                           &DX12::Desc::SRV::Tex2D(format),
                                           tex.allocationSRV.GetCpuHandle());
 
@@ -197,7 +208,7 @@ DXRenderer& DXRenderer::RegisterRenderTexture2D(std::string name, UINT width,
   rtvDesc.Format = format;
   rtvDesc.Texture2D.MipSlice = 0;
   rtvDesc.Texture2D.PlaneSlice = 0;  // ?
-  pImpl->device->CreateRenderTargetView(tex.resource, &rtvDesc,
+  pImpl->device->CreateRenderTargetView(tex.resources[0], &rtvDesc,
                                         tex.allocationRTV.GetCpuHandle());
 
   pImpl->textureMap.emplace(std::move(name), std::move(tex));
@@ -208,6 +219,7 @@ DXRenderer& DXRenderer::RegisterRenderTexture2D(std::string name, UINT width,
 DXRenderer& DXRenderer::RegisterRenderTextureCube(std::string name, UINT size,
                                                   DXGI_FORMAT format) {
   Impl::Texture tex;
+  tex.resources.resize(1);
 
   tex.allocationSRV =
       DX12::DescriptorHeapMngr::Instance().GetCSUGpuDH()->Allocate(1);
@@ -231,10 +243,10 @@ DXRenderer& DXRenderer::RegisterRenderTextureCube(std::string name, UINT size,
   ThrowIfFailed(pImpl->device->CreateCommittedResource(
       &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
       &texDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-      IID_PPV_ARGS(&tex.resource)));
+      IID_PPV_ARGS(&tex.resources[0])));
 
   // create SRV
-  pImpl->device->CreateShaderResourceView(tex.resource,
+  pImpl->device->CreateShaderResourceView(tex.resources[0],
                                           &DX12::Desc::SRV::TexCube(format),
                                           tex.allocationSRV.GetCpuHandle());
 
@@ -248,7 +260,7 @@ DXRenderer& DXRenderer::RegisterRenderTextureCube(std::string name, UINT size,
     rtvDesc.Texture2DArray.PlaneSlice = 0;
     rtvDesc.Texture2DArray.FirstArraySlice = i;
     rtvDesc.Texture2DArray.ArraySize = 1;
-    pImpl->device->CreateRenderTargetView(tex.resource, &rtvDesc,
+    pImpl->device->CreateRenderTargetView(tex.resources[0], &rtvDesc,
                                           tex.allocationRTV.GetCpuHandle(i));
   }
 
