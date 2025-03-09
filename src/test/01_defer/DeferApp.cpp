@@ -131,6 +131,8 @@ class DeferApp : public D3DApp {
   My::DX12::FrameResource* mCurrFrameResource = nullptr;
   int mCurrFrameResourceIndex = 0;
 
+  // UINT mCbvSrvDescriptorSize = 0;
+
   ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
 
   // ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
@@ -162,6 +164,7 @@ class DeferApp : public D3DApp {
   POINT mLastMousePos;
 
   // frame graph
+  // My::DX12::FG::RsrcMngr fgRsrcMngr;
   My::DX12::FG::Executor fgExecutor;
   My::FG::Compiler fgCompiler;
   My::FG::FrameGraph fg;
@@ -200,6 +203,8 @@ bool DeferApp::Initialize() {
 
   My::DX12::DescriptorHeapMngr::Instance().Init(uDevice.raw.Get(), 1024, 1024,
                                                 1024, 1024, 1024);
+
+  // fgRsrcMngr.Init(uGCmdList, uDevice);
 
   // Reset the command list to prep for initialization commands.
   ThrowIfFailed(uGCmdList->Reset(mDirectCmdListAlloc.Get(), nullptr));
@@ -278,8 +283,6 @@ void DeferApp::Draw(const GameTimer& gt) {
   uGCmdList.SetDescriptorHeaps(My::DX12::DescriptorHeapMngr::Instance()
                                    .GetCSUGpuDH()
                                    ->GetDescriptorHeap());
-  uGCmdList->RSSetViewports(1, &mScreenViewport);
-  uGCmdList->RSSetScissorRects(1, &mScissorRect);
 
   fg.Clear();
   auto fgRsrcMngr = mCurrFrameResource->GetResource<My::DX12::FG::RsrcMngr>(
@@ -288,49 +291,81 @@ void DeferApp::Draw(const GameTimer& gt) {
   fgExecutor.NewFrame();
   ;
 
+  auto renderTexture = fg.AddResourceNode("Render Texture");
   auto backbuffer = fg.AddResourceNode("Back Buffer");
   auto depthstencil = fg.AddResourceNode("Depth Stencil");
-  auto pass = fg.AddPassNode("Pass", {}, {backbuffer, depthstencil});
-
-  D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc;
-  dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
-  dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-  dsvDesc.Format = mDepthStencilFormat;
-  dsvDesc.Texture2D.MipSlice = 0;
+  auto rtPass =
+      fg.AddPassNode("Render to Texture", {}, {renderTexture, depthstencil});
+  auto presentPass = fg.AddPassNode("Present", {renderTexture}, {backbuffer});
 
   (*fgRsrcMngr)
+      .RegisterTemporalRsrc(
+          renderTexture,
+          My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R8G8B8A8_UNORM, mClientWidth,
+                                       mClientHeight, Colors::LightSteelBlue))
       .RegisterImportedRsrc(backbuffer,
                             {CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT})
       .RegisterImportedRsrc(depthstencil, {mDepthStencilBuffer.Get(),
                                            D3D12_RESOURCE_STATE_DEPTH_WRITE})
-      .RegisterPassRsrcs(pass, backbuffer, D3D12_RESOURCE_STATE_RENDER_TARGET,
+      .RegisterPassRsrcs(rtPass, renderTexture,
+                         D3D12_RESOURCE_STATE_RENDER_TARGET,
                          My::DX12::FG::RsrcImplDesc_RTV_Null{})
-      .RegisterPassRsrcs(pass, depthstencil, D3D12_RESOURCE_STATE_DEPTH_WRITE,
-                         dsvDesc);
+      .RegisterPassRsrcs(rtPass, depthstencil, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                         My::DX12::Desc::DSV::Basic(mDepthStencilFormat))
+      .RegisterPassRsrcs(
+          presentPass, renderTexture, D3D12_RESOURCE_STATE_COPY_SOURCE,
+          My::DX12::Desc::SRV::Tex2D(CurrentBackBuffer()->GetDesc().Format))
+      .RegisterPassRsrcs(presentPass, backbuffer,
+                         D3D12_RESOURCE_STATE_COPY_DEST,
+                         My::DX12::FG::RsrcImplDesc_RTV_Null{});
 
-  fgExecutor.RegisterPassFunc(pass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
-    // Clear the back buffer and depth buffer.
-    uGCmdList.ClearRenderTargetView(rsrcs.find(backbuffer)->second.cpuHandle,
-                                    Colors::LightSteelBlue);
-    uGCmdList.ClearDepthStencilView(rsrcs.find(depthstencil)->second.cpuHandle);
+  fgExecutor.RegisterPassFunc(
+      rtPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
+        auto rt = rsrcs.find(renderTexture)->second;
+        auto ds = rsrcs.find(depthstencil)->second;
+        D3D12_VIEWPORT viewport;
+        viewport.TopLeftX = 0;
+        viewport.TopLeftY = 0;
+        viewport.Width = rt.resource->GetDesc().Width;
+        viewport.Height = rt.resource->GetDesc().Height;
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+        D3D12_RECT rect = {0, 0, viewport.Width, viewport.Height};
+        uGCmdList->RSSetViewports(1, &viewport);
+        uGCmdList->RSSetScissorRects(1, &rect);
 
-    // Specify the buffers we are going to render to.
-    uGCmdList.OMSetRenderTarget(rsrcs.find(backbuffer)->second.cpuHandle,
-                                rsrcs.find(depthstencil)->second.cpuHandle);
+        // Clear the render texture and depth buffer.
+        uGCmdList.ClearRenderTargetView(rt.cpuHandle, Colors::LightSteelBlue);
+        uGCmdList.ClearDepthStencilView(ds.cpuHandle);
 
-    uGCmdList->SetGraphicsRootSignature(mRootSignature.Get());
+        // Specify the buffers we are going to render to.
+        uGCmdList.OMSetRenderTarget(rt.cpuHandle, ds.cpuHandle);
 
-    auto passCB = mCurrFrameResource
-                      ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
-                          "ArrayUploadBuffer<PassConstants>")
-                      ->GetResource();
-    uGCmdList->SetGraphicsRootConstantBufferView(
-        2, passCB->GetGPUVirtualAddress());
+        uGCmdList->SetGraphicsRootSignature(mRootSignature.Get());
 
-    DrawRenderItems(uGCmdList.raw.Get(), mOpaqueRitems);
+        auto passCB =
+            mCurrFrameResource
+                ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
+                    "rtPass constants")
+                ->GetResource();
+        uGCmdList->SetGraphicsRootConstantBufferView(
+            2, passCB->GetGPUVirtualAddress());
 
-    DrawRenderItems(uGCmdList.raw.Get(), mOpaqueRitems);
-  });
+        DrawRenderItems(uGCmdList.raw.Get(), mOpaqueRitems);
+      });
+
+  fgExecutor.RegisterPassFunc(
+      presentPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
+        auto rt = rsrcs.find(renderTexture)->second;
+        auto bb = rsrcs.find(backbuffer)->second;
+        uGCmdList->CopyResource(bb.resource, rt.resource);
+      });
+
+  static bool flag{false};
+  if (!flag) {
+    OutputDebugStringA(fg.ToGraphvizGraph().Dump().c_str());
+    flag = true;
+  }
 
   auto [success, crst] = fgCompiler.Compile(fg);
   fgExecutor.Execute(crst, *fgRsrcMngr);
@@ -345,6 +380,14 @@ void DeferApp::Draw(const GameTimer& gt) {
   ThrowIfFailed(mSwapChain->Present(0, 0));
   mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
+  //// Advance the fence value to mark commands up to this fence point.
+  // mCurrFrameResource->Fence = ++mCurrentFence;
+
+  //// Add an instruction to the command queue to set a new fence point.
+  //// Because we are on the GPU timeline, the new fence point won't be
+  //// set until the GPU finishes processing all the commands prior to this
+  ///Signal().
+  // uCmdQueue->Signal(mFence.Get(), mCurrentFence);
   mCurrFrameResource->Signal(uCmdQueue.raw.Get(), ++mCurrentFence);
 }
 
@@ -494,11 +537,19 @@ void DeferApp::UpdateMainPassCB(const GameTimer& gt) {
   auto currPassCB =
       mCurrFrameResource
           ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
-              "ArrayUploadBuffer<PassConstants>");
+              "rtPass constants");
   currPassCB->Set(0, mMainPassCB);
 }
 
 void DeferApp::LoadTextures() {
+  /*auto woodCrateTex = std::make_unique<Texture>();
+  woodCrateTex->Name = "woodCrateTex";
+  woodCrateTex->Filename = L"../data/textures/WoodCrate01.dds";
+  ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(uDevice.raw.Get(),
+          uGCmdList.raw.Get(), woodCrateTex->Filename.c_str(),
+          woodCrateTex->Resource, woodCrateTex->UploadHeap));
+
+  mTextures[woodCrateTex->Name] = std::move(woodCrateTex);*/
   My::DXRenderer::Instance().RegisterDDSTextureFromFile(
       My::DXRenderer::Instance().GetUpload(), "woodCrateTex",
       L"../data/textures/WoodCrate01.dds");
@@ -546,14 +597,44 @@ void DeferApp::BuildRootSignature() {
       IID_PPV_ARGS(mRootSignature.GetAddressOf())));
 }
 
-void DeferApp::BuildDescriptorHeaps() {}
+void DeferApp::BuildDescriptorHeaps() {
+  //
+  // Create the SRV heap.
+  //
+  /*D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+  srvHeapDesc.NumDescriptors = 1;
+  srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+  srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+  ThrowIfFailed(uDevice->CreateDescriptorHeap(&srvHeapDesc,
+  IID_PPV_ARGS(&mSrvDescriptorHeap)));*/
+
+  // mSrvDescriptorHeap =
+  // My::DX12::DescriptorHeapMngr::Instance().GetCSUGpuDH()->Allocate(1);
+
+  ////
+  //// Fill out the heap with actual descriptors.
+  ////
+  ///*CD3DX12_CPU_DESCRIPTOR_HANDLE
+  ///hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());*/
+  // CD3DX12_CPU_DESCRIPTOR_HANDLE
+  // hDescriptor(mSrvDescriptorHeap.GetCpuHandle());
+
+  // auto woodCrateTex = mTextures["woodCrateTex"]->Resource;
+  //
+  // uDevice.CreateSRV_Tex2D(woodCrateTex.Get(), hDescriptor);
+}
 
 void DeferApp::BuildShadersAndInputLayout() {
+  // mShaders["standardVS"] =
+  // My::DX12::Util::CompileShader(L"..\\data\\shaders\\00_crate\\Default.hlsl",
+  // nullptr, "VS", "vs_5_0"); mShaders["opaquePS"] =
+  // My::DX12::Util::CompileShader(L"..\\data\\shaders\\00_crate\\Default.hlsl",
+  // nullptr, "PS", "ps_5_0");
   My::DXRenderer::Instance().RegisterShaderByteCode(
-      "standardVS", L"..\\data\\shaders\\00_crate\\Default.hlsl", nullptr, "VS",
+      "standardVS", L"..\\data\\shaders\\01_defer\\Default.hlsl", nullptr, "VS",
       "vs_5_0");
   My::DXRenderer::Instance().RegisterShaderByteCode(
-      "opaquePS", L"..\\data\\shaders\\00_crate\\Default.hlsl", nullptr, "PS",
+      "opaquePS", L"..\\data\\shaders\\01_defer\\Default.hlsl", nullptr, "PS",
       "ps_5_0");
 
   mInputLayout = {
@@ -618,7 +699,7 @@ void DeferApp::BuildFrameResources() {
       reinterpret_cast<ID3D12CommandAllocator*>(allocator)->Release();
     });
 
-    fr->RegisterResource("ArrayUploadBuffer<PassConstants>",
+    fr->RegisterResource("rtPass constants",
                          new My::DX12::ArrayUploadBuffer<PassConstants>{
                              uDevice.raw.Get(), 1, true});
 

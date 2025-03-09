@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include <MyDX12/MyDX12.h>
-
 #include <string>
+
+#include <MyDX12/MyDX12.h>
 
 namespace My {
 class DXRenderer {
@@ -39,12 +39,10 @@ class DXRenderer {
   // compile shader file to bytecode
   // [arguments]
   // - defines: marco array, end with {NULL, NULL}
-  // - - e.g. #define zero 0 <-> D3D_SHADER_MACRO Shader_Macros[] = { "zero",
-  // "0", NULL, NULL };
+  // - - e.g. #define zero 0 <-> D3D_SHADER_MACRO Shader_Macros[] = { "zero", "0", NULL, NULL };
   // - entrypoint: begin function name, like 'main'
   // - target: e.g. cs/ds/gs/hs/ps/vs + _5_ + 0/1
-  // [ref]
-  // https://docs.microsoft.com/en-us/windows/win32/api/d3dcompiler/nf-d3dcompiler-d3dcompilefromfile
+  // [ref] https://docs.microsoft.com/en-us/windows/win32/api/d3dcompiler/nf-d3dcompiler-d3dcompilefromfile
   ID3DBlob* RegisterShaderByteCode(std::string name,
                                    const std::wstring& filename,
                                    const D3D_SHADER_MACRO* defines,
@@ -72,4 +70,6 @@ class DXRenderer {
   Impl* pImpl;
 
   DXRenderer();
+  ~DXRenderer();
+};
 }  // namespace My

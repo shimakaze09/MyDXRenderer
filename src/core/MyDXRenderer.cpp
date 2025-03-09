@@ -82,8 +82,8 @@ DXRenderer& DXRenderer::RegisterDDSTextureFromFile(
       DX12::DescriptorHeapMngr::Instance().GetCSUGpuDH()->Allocate(1);
 
   D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc =
-      isCubeMap ? DX12::Desc::SRV::TexCube(tex.resource)
-                : DX12::Desc::SRV::Tex2D(tex.resource);
+      isCubeMap ? DX12::Desc::SRV::TexCube(tex.resource->GetDesc().Format)
+                : DX12::Desc::SRV::Tex2D(tex.resource->GetDesc().Format);
 
   pImpl->device->CreateShaderResourceView(tex.resource, &srvDesc,
                                           tex.allocationSRV.GetCpuHandle());
@@ -97,6 +97,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE DXRenderer::GetTextureSrvCpuHandle(
     const std::string& name) const {
   return pImpl->textureMap.find(name)->second.allocationSRV.GetCpuHandle();
 }
+
 D3D12_GPU_DESCRIPTOR_HANDLE DXRenderer::GetTextureSrvGpuHandle(
     const std::string& name) const {
   return pImpl->textureMap.find(name)->second.allocationSRV.GetGpuHandle();
@@ -176,7 +177,7 @@ DXRenderer& DXRenderer::RegisterRenderTexture2D(std::string name, UINT width,
 
   // create SRV
   pImpl->device->CreateShaderResourceView(tex.resource,
-                                          &DX12::Desc::SRV::Tex2D(tex.resource),
+                                          &DX12::Desc::SRV::Tex2D(format),
                                           tex.allocationSRV.GetCpuHandle());
 
   // create RTVs
@@ -223,9 +224,9 @@ DXRenderer& DXRenderer::RegisterRenderTextureCube(std::string name, UINT size,
       IID_PPV_ARGS(&tex.resource)));
 
   // create SRV
-  pImpl->device->CreateShaderResourceView(
-      tex.resource, &DX12::Desc::SRV::TexCube(tex.resource),
-      tex.allocationSRV.GetCpuHandle());
+  pImpl->device->CreateShaderResourceView(tex.resource,
+                                          &DX12::Desc::SRV::TexCube(format),
+                                          tex.allocationSRV.GetCpuHandle());
 
   // create RTVs
   for (UINT i = 0; i < 6; i++) {
