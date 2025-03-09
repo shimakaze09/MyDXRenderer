@@ -2,7 +2,7 @@
 // CrateApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
 
-#include <MyDX12/UploadBuffer.h>
+#include <UDX12/UploadBuffer.h>
 
 #include "../common/GeometryGenerator.h"
 #include "../common/MathHelper.h"
@@ -40,6 +40,7 @@ struct RenderItem {
 
   Material* Mat = nullptr;
   My::DX12::MeshGeometry* Geo = nullptr;
+  // std::string Geo;
 
   // Primitive topology.
   D3D12_PRIMITIVE_TOPOLOGY PrimitiveType =
@@ -102,8 +103,8 @@ class CrateApp : public D3DApp {
   // ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
   My::DX12::DescriptorHeapAllocation mSrvDescriptorHeap;
 
-  std::unordered_map<std::string, std::unique_ptr<My::DX12::MeshGeometry>>
-      mGeometries;
+  // std::unordered_map<std::string, std::unique_ptr<My::DX12::MeshGeometry>>
+  // mGeometries;
   std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
   std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
   std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
@@ -502,14 +503,14 @@ void CrateApp::UpdateMainPassCB(const GameTimer& gt) {
 }
 
 void CrateApp::LoadTextures() {
-  /*auto woodCrateTex = std::make_unique<Texture>();
-  woodCrateTex->Name = "woodCrateTex";
-  woodCrateTex->Filename = L"../data/textures/WoodCrate01.dds";
-  ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(uDevice.raw.Get(),
-          uGCmdList.raw.Get(), woodCrateTex->Filename.c_str(),
-          woodCrateTex->Resource, woodCrateTex->UploadHeap));
+  //   auto woodCrateTex = std::make_unique<Texture>();
+  //   woodCrateTex->Name = "woodCrateTex";
+  //   woodCrateTex->Filename = L"../data/textures/WoodCrate01.dds";
+  //   ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(uDevice.raw.Get(),
+  //           uGCmdList.raw.Get(), woodCrateTex->Filename.c_str(),
+  //           woodCrateTex->Resource, woodCrateTex->UploadHeap));
 
-  mTextures[woodCrateTex->Name] = std::move(woodCrateTex);*/
+  //   mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
   My::DXRenderer::Instance().RegisterDDSTextureFromFile(
       My::DXRenderer::Instance().GetUpload(), "woodCrateTex",
       L"../data/textures/WoodCrate01.dds");
@@ -622,10 +623,10 @@ void CrateApp::BuildShapeGeometry() {
   const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
   const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
 
-  auto geo = std::make_unique<My::DX12::MeshGeometry>();
+  /*auto geo = std::make_unique<My::DX12::MeshGeometry>();
   geo->Name = "boxGeo";
 
-  /*ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+  ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
   CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(),
   vbByteSize);
 
@@ -633,9 +634,9 @@ void CrateApp::BuildShapeGeometry() {
   CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(),
   ibByteSize);
 
-  geo->VertexBufferGPU = My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(),
-          uGCmdList.raw.Get(), vertices.data(), vbByteSize,
-  geo->VertexBufferUploader);
+  geo->VertexBufferGPU =
+  My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(), uGCmdList.raw.Get(),
+  vertices.data(), vbByteSize, geo->VertexBufferUploader);
 
   geo->IndexBufferGPU = My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(),
           uGCmdList.raw.Get(), indices.data(), ibByteSize,
@@ -646,13 +647,21 @@ void CrateApp::BuildShapeGeometry() {
   geo->IndexFormat = DXGI_FORMAT_R16_UINT;
   geo->IndexBufferByteSize = ibByteSize;*/
 
-  geo->InitBuffer(uDevice.raw.Get(), My::DXRenderer::Instance().GetUpload(),
-                  vertices.data(), (UINT)vertices.size(), sizeof(Vertex),
-                  indices.data(), (UINT)indices.size(), DXGI_FORMAT_R16_UINT);
+  //   geo->InitBuffer(uDevice.raw.Get(),
+  //   My::DXRenderer::Instance().GetUpload(),
+  //           vertices.data(), (UINT)vertices.size(), sizeof(Vertex),
+  //           indices.data(), (UINT)indices.size(), DXGI_FORMAT_R16_UINT);
 
-  geo->submeshGeometries["box"] = boxSubmesh;
+  //   geo->submeshGeometries["box"] = boxSubmesh;
 
-  mGeometries[geo->Name] = std::move(geo);
+  //   mGeometries[geo->Name] = std::move(geo);
+
+  My::DXRenderer::Instance()
+      .RegisterStaticMeshGeometry(
+          My::DXRenderer::Instance().GetUpload(), "boxGeo", vertices.data(),
+          (UINT)vertices.size(), sizeof(Vertex), indices.data(),
+          (UINT)indices.size(), DXGI_FORMAT_R16_UINT)
+      .submeshGeometries["box"] = boxSubmesh;
 }
 
 void CrateApp::BuildPSOs() {
@@ -709,7 +718,7 @@ void CrateApp::BuildRenderItems() {
   auto boxRitem = std::make_unique<RenderItem>();
   boxRitem->ObjCBIndex = 0;
   boxRitem->Mat = mMaterials["woodCrate"].get();
-  boxRitem->Geo = mGeometries["boxGeo"].get();
+  boxRitem->Geo = &My::DXRenderer::Instance().GetMeshGeometry("boxGeo");
   boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
   boxRitem->IndexCount = boxRitem->Geo->submeshGeometries["box"].IndexCount;
   boxRitem->StartIndexLocation =
@@ -740,10 +749,10 @@ void CrateApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList,
     cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
     cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-    /*CD3DX12_GPU_DESCRIPTOR_HANDLE
-     * tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());*/
-    /*CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap.GetGpuHandle());
-    tex.Offset(ri->Mat->DiffuseSrvGpuHandle, mCbvSrvDescriptorSize);*/
+    // CD3DX12_GPU_DESCRIPTOR_HANDLE
+    // *tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+    // CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap.GetGpuHandle());
+    // tex.Offset(ri->Mat->DiffuseSrvGpuHandle, mCbvSrvDescriptorSize);
 
     D3D12_GPU_VIRTUAL_ADDRESS objCBAddress =
         objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;

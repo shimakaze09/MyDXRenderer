@@ -2,9 +2,6 @@
 // Created by Admin on 9/03/2025.
 //
 
-#include <MyDX12/MyDX12.h>
-#include <MyDX12/_deps/DirectXTK12/DDSTextureLoader.h>
-#include <MyDX12/_deps/DirectXTK12/ResourceUploadBatch.h>
 #include <MyDXRenderer/MyDXRenderer.h>
 
 #include <iostream>
@@ -23,7 +20,9 @@ struct DXRenderer::Impl {
   bool isInit{false};
   ID3D12Device* device{nullptr};
   DirectX::ResourceUploadBatch* upload;
+
   std::unordered_map<std::string, Texture> textureMap;
+  std::unordered_map<std::string, DX12::MeshGeometry> meshGeoMap;
 };
 
 DXRenderer::DXRenderer() : pImpl(new Impl) {}
@@ -55,6 +54,7 @@ void DXRenderer::Release() {
     tex.resource->Release();
   }
   pImpl->textureMap.clear();
+  pImpl->meshGeoMap.clear();
 
   pImpl->isInit = false;
 }
@@ -66,7 +66,7 @@ DirectX::ResourceUploadBatch& DXRenderer::GetUpload() const {
 DXRenderer& DXRenderer::RegisterDDSTextureFromFile(
     DirectX::ResourceUploadBatch& upload, std::string name,
     std::wstring filename) {
-  Impl::Texture& tex = pImpl->textureMap[name];
+  Impl::Texture tex;
 
   bool isCubeMap;
   DirectX::CreateDDSTextureFromFile(pImpl->device, upload, filename.data(),
@@ -85,10 +85,37 @@ DXRenderer& DXRenderer::RegisterDDSTextureFromFile(
   } else
     assert("not support");
 
+  pImpl->textureMap.emplace(std::move(name), std::move(tex));
+
   return *this;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE DXRenderer::GetTextureGpuHandle(
     const std::string& name) const {
   return pImpl->textureMap.find(name)->second.gpuHandle;
+}
+
+DX12::MeshGeometry& DXRenderer::RegisterStaticMeshGeometry(
+    DirectX::ResourceUploadBatch& upload, std::string name, const void* vb_data,
+    UINT vb_count, UINT vb_stride, const void* ib_data, UINT ib_count,
+    DXGI_FORMAT ib_format) {
+  auto& meshGeo = pImpl->meshGeoMap[name];
+  meshGeo.Name = std::move(name);
+  meshGeo.InitBuffer(pImpl->device, upload, vb_data, vb_count, vb_stride,
+                     ib_data, ib_count, ib_format);
+  return meshGeo;
+}
+
+DX12::MeshGeometry& DXRenderer::RegisterDynamicMeshGeometry(
+    std::string name, const void* vb_data, UINT vb_count, UINT vb_stride,
+    const void* ib_data, UINT ib_count, DXGI_FORMAT ib_format) {
+  auto& meshGeo = pImpl->meshGeoMap[name];
+  meshGeo.Name = std::move(name);
+  meshGeo.InitBuffer(pImpl->device, vb_data, vb_count, vb_stride, ib_data,
+                     ib_count, ib_format);
+  return meshGeo;
+}
+
+DX12::MeshGeometry& DXRenderer::GetMeshGeometry(const std::string& name) const {
+  return pImpl->meshGeoMap.find(name)->second;
 }
