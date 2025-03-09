@@ -29,7 +29,6 @@
 #include <fstream>
 #include <sstream>
 #include <cassert>
-#include "d3dx12.h"
 #include "MathHelper.h"
 
 #include <MyDX12/_deps/DirectXTK12/ResourceUploadBatch.h>
