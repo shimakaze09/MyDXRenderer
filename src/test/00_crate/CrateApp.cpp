@@ -131,8 +131,6 @@ class DeferApp : public D3DApp {
   My::DX12::FrameResource* mCurrFrameResource = nullptr;
   int mCurrFrameResourceIndex = 0;
 
-  ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
-
   // ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
   My::DX12::DescriptorHeapAllocation mSrvDescriptorHeap;
 
@@ -140,8 +138,6 @@ class DeferApp : public D3DApp {
   std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 
   std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
-
-  ComPtr<ID3D12PipelineState> mOpaquePSO = nullptr;
 
   // List of all the render items.
   std::vector<std::unique_ptr<RenderItem>> mAllRitems;
@@ -273,7 +269,8 @@ void DeferApp::Draw(const GameTimer& gt) {
 
   // A command list can be reset after it has been added to the command queue
   // via ExecuteCommandList. Reusing the command list reuses memory.
-  ThrowIfFailed(uGCmdList->Reset(cmdListAlloc, mOpaquePSO.Get()));
+  ThrowIfFailed(uGCmdList->Reset(cmdListAlloc,
+                                 My::DXRenderer::Instance().GetPSO("opaque")));
 
   uGCmdList.SetDescriptorHeaps(My::DX12::DescriptorHeapMngr::Instance()
                                    .GetCSUGpuDH()
@@ -318,7 +315,8 @@ void DeferApp::Draw(const GameTimer& gt) {
     uGCmdList.OMSetRenderTarget(rsrcs.find(backbuffer)->second.cpuHandle,
                                 rsrcs.find(depthstencil)->second.cpuHandle);
 
-    uGCmdList->SetGraphicsRootSignature(mRootSignature.Get());
+    uGCmdList->SetGraphicsRootSignature(
+        Ubpa::DXRenderer::Instance().GetRootSignature("default"));
 
     auto passCB = mCurrFrameResource
                       ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
@@ -529,21 +527,8 @@ void DeferApp::BuildRootSignature() {
 
   // create a root signature with a single slot which points to a descriptor
   // range consisting of a single constant buffer
-  ComPtr<ID3DBlob> serializedRootSig = nullptr;
-  ComPtr<ID3DBlob> errorBlob = nullptr;
-  HRESULT hr = D3D12SerializeRootSignature(
-      &rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-      serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
 
-  if (errorBlob != nullptr) {
-    ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-  }
-  ThrowIfFailed(hr);
-
-  ThrowIfFailed(uDevice->CreateRootSignature(
-      0, serializedRootSig->GetBufferPointer(),
-      serializedRootSig->GetBufferSize(),
-      IID_PPV_ARGS(mRootSignature.GetAddressOf())));
+  My::DXRenderer::Instance().RegisterRootSignature("default", &rootSigDesc);
 }
 
 void DeferApp::BuildDescriptorHeaps() {}
@@ -598,12 +583,12 @@ void DeferApp::BuildShapeGeometry() {
 
 void DeferApp::BuildPSOs() {
   auto opaquePsoDesc = My::DX12::Desc::PSO::Basic(
-      mRootSignature.Get(), mInputLayout.data(), (UINT)mInputLayout.size(),
+      My::DXRenderer::Instance().GetRootSignature("default"),
+      (UINT)mInputLayout.size(),
       My::DXRenderer::Instance().GetShaderByteCode("standardVS"),
       My::DXRenderer::Instance().GetShaderByteCode("opaquePS"),
       mBackBufferFormat, mDepthStencilFormat);
-  ThrowIfFailed(uDevice->CreateGraphicsPipelineState(
-      &opaquePsoDesc, IID_PPV_ARGS(&mOpaquePSO)));
+  My::DXRenderer::Instance().RegisterPSO("opaque", &opaquePsoDesc);
 }
 
 void DeferApp::BuildFrameResources() {

@@ -143,8 +143,6 @@ class DeferApp : public D3DApp {
 
   std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
-  ComPtr<ID3D12PipelineState> mOpaquePSO = nullptr;
-
   // List of all the render items.
   std::vector<std::unique_ptr<RenderItem>> mAllRitems;
 
@@ -278,7 +276,8 @@ void DeferApp::Draw(const GameTimer& gt) {
 
   // A command list can be reset after it has been added to the command queue
   // via ExecuteCommandList. Reusing the command list reuses memory.
-  ThrowIfFailed(uGCmdList->Reset(cmdListAlloc, mOpaquePSO.Get()));
+  ThrowIfFailed(uGCmdList->Reset(cmdListAlloc,
+                                 My::DXRenderer::Instance().GetPSO("opaque")));
 
   uGCmdList.SetDescriptorHeaps(My::DX12::DescriptorHeapMngr::Instance()
                                    .GetCSUGpuDH()
@@ -386,7 +385,7 @@ void DeferApp::Draw(const GameTimer& gt) {
   //// Add an instruction to the command queue to set a new fence point.
   //// Because we are on the GPU timeline, the new fence point won't be
   //// set until the GPU finishes processing all the commands prior to this
-  ///Signal().
+  /// Signal().
   // uCmdQueue->Signal(mFence.Get(), mCurrentFence);
   mCurrFrameResource->Signal(uCmdQueue.raw.Get(), ++mCurrentFence);
 }
@@ -615,7 +614,7 @@ void DeferApp::BuildDescriptorHeaps() {
   //// Fill out the heap with actual descriptors.
   ////
   ///*CD3DX12_CPU_DESCRIPTOR_HANDLE
-  ///hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());*/
+  /// hDescriptor(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());*/
   // CD3DX12_CPU_DESCRIPTOR_HANDLE
   // hDescriptor(mSrvDescriptorHeap.GetCpuHandle());
 
@@ -683,8 +682,7 @@ void DeferApp::BuildPSOs() {
       My::DXRenderer::Instance().GetShaderByteCode("standardVS"),
       My::DXRenderer::Instance().GetShaderByteCode("opaquePS"),
       mBackBufferFormat, mDepthStencilFormat);
-  ThrowIfFailed(uDevice->CreateGraphicsPipelineState(
-      &opaquePsoDesc, IID_PPV_ARGS(&mOpaquePSO)));
+  My::DXRenderer::Instance().RegisterPSO("opaque", &opaquePsoDesc);
 }
 
 void DeferApp::BuildFrameResources() {
