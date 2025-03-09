@@ -194,8 +194,6 @@ bool DeferApp::Initialize() {
   My::DX12::DescriptorHeapMngr::Instance().Init(myDevice.raw.Get(), 1024, 1024,
                                                 1024, 1024, 1024);
 
-  // fgRsrcMngr.Init(uGCmdList, myDevice);
-
   // Reset the command list to prep for initialization commands.
   ThrowIfFailed(myGCmdList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
@@ -270,8 +268,11 @@ void DeferApp::Draw(const GameTimer& gt) {
   // via ExecuteCommandList. Reusing the command list reuses memory.
   ThrowIfFailed(myGCmdList->Reset(cmdListAlloc, nullptr));
   myGCmdList.SetDescriptorHeaps(My::DX12::DescriptorHeapMngr::Instance()
-                                    .GetCSUGpuDH()
-                                    ->GetDescriptorHeap());
+                                   .GetCSUGpuDH()
+                                   ->GetDescriptorHeap());
+
+  myGCmdList->RSSetViewports(1, &mScreenViewport);
+  myGCmdList->RSSetScissorRects(1, &mScissorRect);
 
   fg.Clear();
   auto fgRsrcMngr = mCurrFrameResource->GetResource<My::DX12::FG::RsrcMngr>(
@@ -280,58 +281,78 @@ void DeferApp::Draw(const GameTimer& gt) {
   fgExecutor.NewFrame();
   ;
 
-  auto renderTexture = fg.AddResourceNode("Render Texture");
+  auto gbuffer0 = fg.AddResourceNode("GBuffer0");
+  auto gbuffer1 = fg.AddResourceNode("GBuffer1");
+  auto gbuffer2 = fg.AddResourceNode("GBuffer2");
   auto backbuffer = fg.AddResourceNode("Back Buffer");
   auto depthstencil = fg.AddResourceNode("Depth Stencil");
-  auto rtPass =
-      fg.AddPassNode("Render to Texture", {}, {renderTexture, depthstencil});
-  auto presentPass = fg.AddPassNode("Present", {renderTexture}, {backbuffer});
+  auto gbPass = fg.AddPassNode("GBuffer Pass", {},
+                               {gbuffer0, gbuffer1, gbuffer2, depthstencil});
+  auto debugPass = fg.AddPassNode("Debug", {gbuffer1}, {backbuffer});
 
   (*fgRsrcMngr)
       .RegisterTemporalRsrc(
-          renderTexture,
-          My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R8G8B8A8_UNORM, mClientWidth,
-                                       mClientHeight, Colors::LightSteelBlue))
+          gbuffer0, My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R32G32B32A32_FLOAT,
+                                                 mClientWidth, mClientHeight,
+                                                 Colors::Black))
+      .RegisterTemporalRsrc(
+          gbuffer1, My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R32G32B32A32_FLOAT,
+                                                 mClientWidth, mClientHeight,
+                                                 Colors::Black))
+      .RegisterTemporalRsrc(
+          gbuffer2, My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R32G32B32A32_FLOAT,
+                                                 mClientWidth, mClientHeight,
+                                                 Colors::Black))
+
+      .RegisterRsrcTable(
+          {{gbuffer0,
+            My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)},
+           {gbuffer1,
+            My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)},
+           {gbuffer2,
+            My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)}})
+
       .RegisterImportedRsrc(backbuffer,
                             {CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT})
       .RegisterImportedRsrc(depthstencil, {mDepthStencilBuffer.Get(),
                                            D3D12_RESOURCE_STATE_DEPTH_WRITE})
-      .RegisterPassRsrcs(rtPass, renderTexture,
-                         D3D12_RESOURCE_STATE_RENDER_TARGET,
+
+      .RegisterPassRsrcs(gbPass, gbuffer0, D3D12_RESOURCE_STATE_RENDER_TARGET,
                          My::DX12::FG::RsrcImplDesc_RTV_Null{})
-      .RegisterPassRsrcs(rtPass, depthstencil, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+      .RegisterPassRsrcs(gbPass, gbuffer1, D3D12_RESOURCE_STATE_RENDER_TARGET,
+                         My::DX12::FG::RsrcImplDesc_RTV_Null{})
+      .RegisterPassRsrcs(gbPass, gbuffer2, D3D12_RESOURCE_STATE_RENDER_TARGET,
+                         My::DX12::FG::RsrcImplDesc_RTV_Null{})
+      .RegisterPassRsrcs(gbPass, depthstencil, D3D12_RESOURCE_STATE_DEPTH_WRITE,
                          My::DX12::Desc::DSV::Basic(mDepthStencilFormat))
+
       .RegisterPassRsrcs(
-          presentPass, renderTexture,
-          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-          My::DX12::Desc::SRV::Tex2D(CurrentBackBuffer()->GetDesc().Format))
-      .RegisterPassRsrcs(presentPass, backbuffer,
+          debugPass, gbuffer1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+          My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
+
+      .RegisterPassRsrcs(debugPass, backbuffer,
                          D3D12_RESOURCE_STATE_RENDER_TARGET,
                          My::DX12::FG::RsrcImplDesc_RTV_Null{});
 
   fgExecutor.RegisterPassFunc(
-      rtPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
+      gbPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
         myGCmdList->SetPipelineState(
-            My::DXRenderer::Instance().GetPSO("opaque"));
-        auto rt = rsrcs.find(renderTexture)->second;
+            My::DXRenderer::Instance().GetPSO("geometry"));
+        auto gb0 = rsrcs.find(gbuffer0)->second;
+        auto gb1 = rsrcs.find(gbuffer1)->second;
+        auto gb2 = rsrcs.find(gbuffer2)->second;
         auto ds = rsrcs.find(depthstencil)->second;
-        D3D12_VIEWPORT viewport;
-        viewport.TopLeftX = 0;
-        viewport.TopLeftY = 0;
-        viewport.Width = rt.resource->GetDesc().Width;
-        viewport.Height = rt.resource->GetDesc().Height;
-        viewport.MinDepth = 0.0f;
-        viewport.MaxDepth = 1.0f;
-        D3D12_RECT rect = {0, 0, viewport.Width, viewport.Height};
-        myGCmdList->RSSetViewports(1, &viewport);
-        myGCmdList->RSSetScissorRects(1, &rect);
 
         // Clear the render texture and depth buffer.
-        myGCmdList.ClearRenderTargetView(rt.cpuHandle, Colors::LightSteelBlue);
+        myGCmdList.ClearRenderTargetView(gb0.cpuHandle, Colors::Black);
+        myGCmdList.ClearRenderTargetView(gb1.cpuHandle, Colors::Black);
+        myGCmdList.ClearRenderTargetView(gb2.cpuHandle, Colors::Black);
         myGCmdList.ClearDepthStencilView(ds.cpuHandle);
 
         // Specify the buffers we are going to render to.
-        myGCmdList.OMSetRenderTarget(rt.cpuHandle, ds.cpuHandle);
+        std::array rts{gb0.cpuHandle, gb1.cpuHandle, gb2.cpuHandle};
+        myGCmdList->OMSetRenderTargets(rts.size(), rts.data(), false,
+                                      &ds.cpuHandle);
 
         myGCmdList->SetGraphicsRootSignature(
             My::DXRenderer::Instance().GetRootSignature("default"));
@@ -339,7 +360,7 @@ void DeferApp::Draw(const GameTimer& gt) {
         auto passCB =
             mCurrFrameResource
                 ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
-                    "rtPass constants")
+                    "gbPass constants")
                 ->GetResource();
         myGCmdList->SetGraphicsRootConstantBufferView(
             2, passCB->GetGPUVirtualAddress());
@@ -348,21 +369,13 @@ void DeferApp::Draw(const GameTimer& gt) {
       });
 
   fgExecutor.RegisterPassFunc(
-      presentPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
+      debugPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
         myGCmdList->SetPipelineState(
             My::DXRenderer::Instance().GetPSO("screen"));
-        auto rt = rsrcs.find(renderTexture)->second;
+        auto img = rsrcs.find(gbuffer1)->second;
         auto bb = rsrcs.find(backbuffer)->second;
-        D3D12_VIEWPORT viewport;
-        viewport.TopLeftX = 0;
-        viewport.TopLeftY = 0;
-        viewport.Width = bb.resource->GetDesc().Width;
-        viewport.Height = bb.resource->GetDesc().Height;
-        viewport.MinDepth = 0.0f;
-        viewport.MaxDepth = 1.0f;
-        D3D12_RECT rect = {0, 0, viewport.Width, viewport.Height};
-        myGCmdList->RSSetViewports(1, &viewport);
-        myGCmdList->RSSetScissorRects(1, &rect);
+
+        // myGCmdList->CopyResource(bb.resource, rt.resource);
 
         // Clear the render texture and depth buffer.
         myGCmdList.ClearRenderTargetView(bb.cpuHandle, Colors::LightSteelBlue);
@@ -374,7 +387,7 @@ void DeferApp::Draw(const GameTimer& gt) {
         myGCmdList->SetGraphicsRootSignature(
             My::DXRenderer::Instance().GetRootSignature("screen"));
 
-        myGCmdList->SetGraphicsRootDescriptorTable(0, rt.gpuHandle);
+        myGCmdList->SetGraphicsRootDescriptorTable(0, img.gpuHandle);
 
         myGCmdList->IASetVertexBuffers(0, 0, nullptr);
         myGCmdList->IASetIndexBuffer(nullptr);
@@ -401,14 +414,6 @@ void DeferApp::Draw(const GameTimer& gt) {
   ThrowIfFailed(mSwapChain->Present(0, 0));
   mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
-  //// Advance the fence value to mark commands up to this fence point.
-  // mCurrFrameResource->Fence = ++mCurrentFence;
-
-  //// Add an instruction to the command queue to set a new fence point.
-  //// Because we are on the GPU timeline, the new fence point won't be
-  //// set until the GPU finishes processing all the commands prior to this
-  /// Signal().
-  // myCmdQueue->Signal(mFence.Get(), mCurrentFence);
   mCurrFrameResource->Signal(myCmdQueue.raw.Get(), ++mCurrentFence);
 }
 
@@ -558,19 +563,11 @@ void DeferApp::UpdateMainPassCB(const GameTimer& gt) {
   auto currPassCB =
       mCurrFrameResource
           ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
-              "rtPass constants");
+              "gbPass constants");
   currPassCB->Set(0, mMainPassCB);
 }
 
 void DeferApp::LoadTextures() {
-  /*auto woodCrateTex = std::make_unique<Texture>();
-  woodCrateTex->Name = "woodCrateTex";
-  woodCrateTex->Filename = L"../data/textures/WoodCrate01.dds";
-  ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(myDevice.raw.Get(),
-          myGCmdList.raw.Get(), woodCrateTex->Filename.c_str(),
-          woodCrateTex->Resource, woodCrateTex->UploadHeap));
-
-  mTextures[woodCrateTex->Name] = std::move(woodCrateTex);*/
   My::DXRenderer::Instance().RegisterDDSTextureFromFile(
       My::DXRenderer::Instance().GetUpload(), "woodCrateTex",
       L"../data/textures/WoodCrate01.dds");
@@ -587,8 +584,6 @@ void DeferApp::BuildRootSignature() {
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable,
                                                D3D12_SHADER_VISIBILITY_PIXEL);
-    // slotRootParameter[0].InitAsShaderResourceView(0, 0,
-    // D3D12_SHADER_VISIBILITY_PIXEL);
     slotRootParameter[1].InitAsConstantBufferView(0);
     slotRootParameter[2].InitAsConstantBufferView(1);
     slotRootParameter[3].InitAsConstantBufferView(2);
@@ -642,6 +637,12 @@ void DeferApp::BuildShadersAndInputLayout() {
   My::DXRenderer::Instance().RegisterShaderByteCode(
       "screenPS", L"..\\data\\shaders\\01_defer\\Screen.hlsl", nullptr, "PS",
       "ps_5_0");
+  My::DXRenderer::Instance().RegisterShaderByteCode(
+      "geometryVS", L"..\\data\\shaders\\01_defer\\Geometry.hlsl", nullptr,
+      "VS", "vs_5_0");
+  My::DXRenderer::Instance().RegisterShaderByteCode(
+      "geometryPS", L"..\\data\\shaders\\01_defer\\Geometry.hlsl", nullptr,
+      "PS", "ps_5_0");
 
   mInputLayout = {
       {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
@@ -698,6 +699,14 @@ void DeferApp::BuildPSOs() {
       My::DXRenderer::Instance().GetShaderByteCode("screenPS"),
       mBackBufferFormat, DXGI_FORMAT_UNKNOWN);
   My::DXRenderer::Instance().RegisterPSO("screen", &screenPsoDesc);
+
+  auto geometryPsoDesc = My::DX12::Desc::PSO::MRT(
+      My::DXRenderer::Instance().GetRootSignature("default"),
+      mInputLayout.data(), (UINT)mInputLayout.size(),
+      My::DXRenderer::Instance().GetShaderByteCode("geometryVS"),
+      My::DXRenderer::Instance().GetShaderByteCode("geometryPS"), 3,
+      DXGI_FORMAT_R32G32B32A32_FLOAT, mDepthStencilFormat);
+  My::DXRenderer::Instance().RegisterPSO("geometry", &geometryPsoDesc);
 }
 
 void DeferApp::BuildFrameResources() {
@@ -712,7 +721,7 @@ void DeferApp::BuildFrameResources() {
       reinterpret_cast<ID3D12CommandAllocator*>(allocator)->Release();
     });
 
-    fr->RegisterResource("rtPass constants",
+    fr->RegisterResource("gbPass constants",
                          new My::DX12::ArrayUploadBuffer<PassConstants>{
                              myDevice.raw.Get(), 1, true});
 
