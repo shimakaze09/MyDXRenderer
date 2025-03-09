@@ -24,7 +24,7 @@
 
 #include <wrl.h>
 #include <d3d11_1.h>
-#include <MyDX12/_deps/d3dx12.h>
+#include "d3dx12.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4005)
