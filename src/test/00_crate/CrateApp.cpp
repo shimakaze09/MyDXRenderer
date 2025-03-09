@@ -645,7 +645,7 @@ void CrateApp::BuildMaterials() {
   woodCrate->Name = "woodCrate";
   woodCrate->MatCBIndex = 0;
   woodCrate->DiffuseSrvGpuHandle =
-      My::DXRenderer::Instance().GetTextureGpuHandle("woodCrateTex");
+      My::DXRenderer::Instance().GetTextureSrvGpuHandle("woodCrateTex");
   woodCrate->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
   woodCrate->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
   woodCrate->Roughness = 0.2f;

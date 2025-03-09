@@ -21,6 +21,7 @@ class DXRenderer {
   DXRenderer& Init(ID3D12Device* device);
   void Release();
 
+  // support tex2d and tex cube
   DXRenderer& RegisterDDSTextureFromFile(DirectX::ResourceUploadBatch& upload,
                                          std::string name,
                                          std::wstring filename);
@@ -50,8 +51,17 @@ class DXRenderer {
                                    const std::string& entrypoint,
                                    const std::string& target);
 
-  D3D12_GPU_DESCRIPTOR_HANDLE GetTextureGpuHandle(
+  DXRenderer& RegisterRenderTexture2D(std::string name, UINT width, UINT height,
+                                      DXGI_FORMAT format);
+  DXRenderer& RegisterRenderTextureCube(std::string name, UINT size,
+                                        DXGI_FORMAT format);
+
+  D3D12_CPU_DESCRIPTOR_HANDLE GetTextureSrvCpuHandle(
       const std::string& name) const;
+  D3D12_GPU_DESCRIPTOR_HANDLE GetTextureSrvGpuHandle(
+      const std::string& name) const;
+
+  DX12::DescriptorHeapAllocation& GetTextureRtvs(const std::string& name) const;
 
   DX12::MeshGeometry& GetMeshGeometry(const std::string& name) const;
 
@@ -62,6 +72,4 @@ class DXRenderer {
   Impl* pImpl;
 
   DXRenderer();
-  ~DXRenderer();
-};
 }  // namespace My
