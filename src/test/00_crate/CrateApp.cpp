@@ -2,7 +2,7 @@
 // CrateApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
 
-#include <UDX12/UploadBuffer.h>
+#include <MyDX12/UploadBuffer.h>
 
 #include "../common/GeometryGenerator.h"
 #include "../common/MathHelper.h"
@@ -107,7 +107,7 @@ class CrateApp : public D3DApp {
   // mGeometries;
   std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
   std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
-  std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
+  // std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
 
   std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
@@ -503,14 +503,14 @@ void CrateApp::UpdateMainPassCB(const GameTimer& gt) {
 }
 
 void CrateApp::LoadTextures() {
-  //   auto woodCrateTex = std::make_unique<Texture>();
-  //   woodCrateTex->Name = "woodCrateTex";
-  //   woodCrateTex->Filename = L"../data/textures/WoodCrate01.dds";
-  //   ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(uDevice.raw.Get(),
-  //           uGCmdList.raw.Get(), woodCrateTex->Filename.c_str(),
-  //           woodCrateTex->Resource, woodCrateTex->UploadHeap));
+  /*auto woodCrateTex = std::make_unique<Texture>();
+  woodCrateTex->Name = "woodCrateTex";
+  woodCrateTex->Filename = L"../data/textures/WoodCrate01.dds";
+  ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(uDevice.raw.Get(),
+          uGCmdList.raw.Get(), woodCrateTex->Filename.c_str(),
+          woodCrateTex->Resource, woodCrateTex->UploadHeap));
 
-  //   mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
+  mTextures[woodCrateTex->Name] = std::move(woodCrateTex);*/
   My::DXRenderer::Instance().RegisterDDSTextureFromFile(
       My::DXRenderer::Instance().GetUpload(), "woodCrateTex",
       L"../data/textures/WoodCrate01.dds");
@@ -586,10 +586,17 @@ void CrateApp::BuildDescriptorHeaps() {
 }
 
 void CrateApp::BuildShadersAndInputLayout() {
-  mShaders["standardVS"] = My::DX12::Util::CompileShader(
-      L"..\\data\\shaders\\00_crate\\Default.hlsl", nullptr, "VS", "vs_5_0");
-  mShaders["opaquePS"] = My::DX12::Util::CompileShader(
-      L"..\\data\\shaders\\00_crate\\Default.hlsl", nullptr, "PS", "ps_5_0");
+  // mShaders["standardVS"] =
+  // My::DX12::Util::CompileShader(L"..\\data\\shaders\\00_crate\\Default.hlsl",
+  // nullptr, "VS", "vs_5_0"); mShaders["opaquePS"] =
+  // My::DX12::Util::CompileShader(L"..\\data\\shaders\\00_crate\\Default.hlsl",
+  // nullptr, "PS", "ps_5_0");
+  My::DXRenderer::Instance().RegisterShaderByteCode(
+      "standardVS", L"..\\data\\shaders\\00_crate\\Default.hlsl", nullptr, "VS",
+      "vs_5_0");
+  My::DXRenderer::Instance().RegisterShaderByteCode(
+      "opaquePS", L"..\\data\\shaders\\00_crate\\Default.hlsl", nullptr, "PS",
+      "ps_5_0");
 
   mInputLayout = {
       {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
@@ -623,29 +630,31 @@ void CrateApp::BuildShapeGeometry() {
   const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
   const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
 
-  /*auto geo = std::make_unique<My::DX12::MeshGeometry>();
-  geo->Name = "boxGeo";
+  //   auto geo = std::make_unique<My::DX12::MeshGeometry>();
+  //   geo->Name = "boxGeo";
 
-  ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-  CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(),
-  vbByteSize);
+  //   ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+  //   CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(),
+  //   vbByteSize);
 
-  ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-  CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(),
-  ibByteSize);
+  //   ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+  //   CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(),
+  //   ibByteSize);
 
-  geo->VertexBufferGPU =
-  My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(), uGCmdList.raw.Get(),
-  vertices.data(), vbByteSize, geo->VertexBufferUploader);
+  //   geo->VertexBufferGPU =
+  //   My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(),
+  //           uGCmdList.raw.Get(), vertices.data(), vbByteSize,
+  //   geo->VertexBufferUploader);
 
-  geo->IndexBufferGPU = My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(),
-          uGCmdList.raw.Get(), indices.data(), ibByteSize,
-  geo->IndexBufferUploader);
+  //   geo->IndexBufferGPU =
+  //   My::DX12::Util::CreateDefaultBuffer(uDevice.raw.Get(),
+  //           uGCmdList.raw.Get(), indices.data(), ibByteSize,
+  //   geo->IndexBufferUploader);
 
-  geo->VertexByteStride = sizeof(Vertex);
-  geo->VertexBufferByteSize = vbByteSize;
-  geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-  geo->IndexBufferByteSize = ibByteSize;*/
+  //   geo->VertexByteStride = sizeof(Vertex);
+  //   geo->VertexBufferByteSize = vbByteSize;
+  //   geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+  //   geo->IndexBufferByteSize = ibByteSize;
 
   //   geo->InitBuffer(uDevice.raw.Get(),
   //   My::DXRenderer::Instance().GetUpload(),
@@ -674,11 +683,18 @@ void CrateApp::BuildPSOs() {
   opaquePsoDesc.InputLayout = {mInputLayout.data(), (UINT)mInputLayout.size()};
   opaquePsoDesc.pRootSignature = mRootSignature.Get();
   opaquePsoDesc.VS = {
-      reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
-      mShaders["standardVS"]->GetBufferSize()};
-  opaquePsoDesc.PS = {
-      reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-      mShaders["opaquePS"]->GetBufferSize()};
+      reinterpret_cast<BYTE*>(My::DXRenderer::Instance()
+                                  .GetShaderByteCode("standardVS")
+                                  ->GetBufferPointer()),
+      My::DXRenderer::Instance()
+          .GetShaderByteCode("standardVS")
+          ->GetBufferSize()};
+  opaquePsoDesc.PS = {reinterpret_cast<BYTE*>(My::DXRenderer::Instance()
+                                                  .GetShaderByteCode("opaquePS")
+                                                  ->GetBufferPointer()),
+                      My::DXRenderer::Instance()
+                          .GetShaderByteCode("opaquePS")
+                          ->GetBufferSize()};
   opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
   opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
   opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -750,7 +766,7 @@ void CrateApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList,
     cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
     // CD3DX12_GPU_DESCRIPTOR_HANDLE
-    // *tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+    //  * tex(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
     // CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvDescriptorHeap.GetGpuHandle());
     // tex.Offset(ri->Mat->DiffuseSrvGpuHandle, mCbvSrvDescriptorSize);
 
