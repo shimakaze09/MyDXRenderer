@@ -186,19 +186,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine,
 DeferApp::DeferApp(HINSTANCE hInstance) : D3DApp(hInstance) {}
 
 DeferApp::~DeferApp() {
-  if (!uDevice.IsNull()) FlushCommandQueue();
+  if (!myDevice.IsNull()) FlushCommandQueue();
 }
 
 bool DeferApp::Initialize() {
   if (!D3DApp::Initialize()) return false;
 
-  My::DXRenderer::Instance().Init(uDevice.raw.Get());
+  My::DXRenderer::Instance().Init(myDevice.raw.Get());
 
-  My::DX12::DescriptorHeapMngr::Instance().Init(uDevice.raw.Get(), 1024, 1024,
+  My::DX12::DescriptorHeapMngr::Instance().Init(myDevice.raw.Get(), 1024, 1024,
                                                 1024, 1024, 1024);
 
   // Reset the command list to prep for initialization commands.
-  ThrowIfFailed(uGCmdList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+  ThrowIfFailed(myGCmdList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
   My::DXRenderer::Instance().GetUpload().Begin();
 
@@ -213,10 +213,10 @@ bool DeferApp::Initialize() {
   BuildPSOs();
 
   // Execute the initialization commands.
-  ThrowIfFailed(uGCmdList->Close());
-  uCmdQueue.Execute(uGCmdList.raw.Get());
+  ThrowIfFailed(myGCmdList->Close());
+  myCmdQueue.Execute(myGCmdList.raw.Get());
 
-  My::DXRenderer::Instance().GetUpload().End(uCmdQueue.raw.Get());
+  My::DXRenderer::Instance().GetUpload().End(myCmdQueue.raw.Get());
 
   // Wait until initialization is complete.
   FlushCommandQueue();
@@ -269,14 +269,14 @@ void DeferApp::Draw(const GameTimer& gt) {
 
   // A command list can be reset after it has been added to the command queue
   // via ExecuteCommandList. Reusing the command list reuses memory.
-  ThrowIfFailed(uGCmdList->Reset(cmdListAlloc,
-                                 My::DXRenderer::Instance().GetPSO("opaque")));
+  ThrowIfFailed(myGCmdList->Reset(cmdListAlloc,
+                                  My::DXRenderer::Instance().GetPSO("opaque")));
 
-  uGCmdList.SetDescriptorHeaps(My::DX12::DescriptorHeapMngr::Instance()
-                                   .GetCSUGpuDH()
-                                   ->GetDescriptorHeap());
-  uGCmdList->RSSetViewports(1, &mScreenViewport);
-  uGCmdList->RSSetScissorRects(1, &mScissorRect);
+  myGCmdList.SetDescriptorHeaps(My::DX12::DescriptorHeapMngr::Instance()
+                                    .GetCSUGpuDH()
+                                    ->GetDescriptorHeap());
+  myGCmdList->RSSetViewports(1, &mScreenViewport);
+  myGCmdList->RSSetScissorRects(1, &mScissorRect);
 
   fg.Clear();
   auto fgRsrcMngr = mCurrFrameResource->GetResource<My::DX12::FG::RsrcMngr>(
@@ -307,43 +307,44 @@ void DeferApp::Draw(const GameTimer& gt) {
 
   fgExecutor.RegisterPassFunc(pass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
     // Clear the back buffer and depth buffer.
-    uGCmdList.ClearRenderTargetView(rsrcs.find(backbuffer)->second.cpuHandle,
-                                    Colors::LightSteelBlue);
-    uGCmdList.ClearDepthStencilView(rsrcs.find(depthstencil)->second.cpuHandle);
+    myGCmdList.ClearRenderTargetView(rsrcs.find(backbuffer)->second.cpuHandle,
+                                     Colors::LightSteelBlue);
+    myGCmdList.ClearDepthStencilView(
+        rsrcs.find(depthstencil)->second.cpuHandle);
 
     // Specify the buffers we are going to render to.
-    uGCmdList.OMSetRenderTarget(rsrcs.find(backbuffer)->second.cpuHandle,
-                                rsrcs.find(depthstencil)->second.cpuHandle);
+    myGCmdList.OMSetRenderTarget(rsrcs.find(backbuffer)->second.cpuHandle,
+                                 rsrcs.find(depthstencil)->second.cpuHandle);
 
-    uGCmdList->SetGraphicsRootSignature(
-        Ubpa::DXRenderer::Instance().GetRootSignature("default"));
+    myGCmdList->SetGraphicsRootSignature(
+        My::DXRenderer::Instance().GetRootSignature("default"));
 
     auto passCB = mCurrFrameResource
                       ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
                           "ArrayUploadBuffer<PassConstants>")
                       ->GetResource();
-    uGCmdList->SetGraphicsRootConstantBufferView(
+    myGCmdList->SetGraphicsRootConstantBufferView(
         2, passCB->GetGPUVirtualAddress());
 
-    DrawRenderItems(uGCmdList.raw.Get(), mOpaqueRitems);
+    DrawRenderItems(myGCmdList.raw.Get(), mOpaqueRitems);
 
-    DrawRenderItems(uGCmdList.raw.Get(), mOpaqueRitems);
+    DrawRenderItems(myGCmdList.raw.Get(), mOpaqueRitems);
   });
 
   auto [success, crst] = fgCompiler.Compile(fg);
   fgExecutor.Execute(crst, *fgRsrcMngr);
 
   // Done recording commands.
-  ThrowIfFailed(uGCmdList->Close());
+  ThrowIfFailed(myGCmdList->Close());
 
   // Add the command list to the queue for execution.
-  uCmdQueue.Execute(uGCmdList.raw.Get());
+  myCmdQueue.Execute(myGCmdList.raw.Get());
 
   // Swap the back and front buffers
   ThrowIfFailed(mSwapChain->Present(0, 0));
   mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
-  mCurrFrameResource->Signal(uCmdQueue.raw.Get(), ++mCurrentFence);
+  mCurrFrameResource->Signal(myCmdQueue.raw.Get(), ++mCurrentFence);
 }
 
 void DeferApp::OnMouseDown(WPARAM btnState, int x, int y) {
@@ -596,7 +597,7 @@ void DeferApp::BuildFrameResources() {
     auto fr = std::make_unique<My::DX12::FrameResource>(mFence.Get());
 
     ID3D12CommandAllocator* allocator;
-    ThrowIfFailed(uDevice->CreateCommandAllocator(
+    ThrowIfFailed(myDevice->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)));
 
     fr->RegisterResource("CommandAllocator", allocator, [](void* allocator) {
@@ -605,18 +606,18 @@ void DeferApp::BuildFrameResources() {
 
     fr->RegisterResource("ArrayUploadBuffer<PassConstants>",
                          new My::DX12::ArrayUploadBuffer<PassConstants>{
-                             uDevice.raw.Get(), 1, true});
+                             myDevice.raw.Get(), 1, true});
 
     fr->RegisterResource("ArrayUploadBuffer<MaterialConstants>",
                          new My::DX12::ArrayUploadBuffer<MaterialConstants>{
-                             uDevice.raw.Get(), mMaterials.size(), true});
+                             myDevice.raw.Get(), mMaterials.size(), true});
 
     fr->RegisterResource("ArrayUploadBuffer<ObjectConstants>",
                          new My::DX12::ArrayUploadBuffer<ObjectConstants>{
-                             uDevice.raw.Get(), mAllRitems.size(), true});
+                             myDevice.raw.Get(), mAllRitems.size(), true});
 
     auto fgRsrcMngr = new My::DX12::FG::RsrcMngr;
-    fgRsrcMngr->Init(uGCmdList, uDevice);
+    fgRsrcMngr->Init(myGCmdList, myDevice);
     fr->RegisterResource("FrameGraphRsrcMngr", fgRsrcMngr);
 
     mFrameResources.emplace_back(std::move(fr));
