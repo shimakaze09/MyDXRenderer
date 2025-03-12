@@ -9,8 +9,9 @@
 #include <crtdbg.h>
 #endif
 
-#include "GameTimer.h"
 #include "d3dUtil.h"
+
+#include "GameTimer.h"
 
 // Link necessary d3d12 libraries.
 // add lib by cmake
@@ -48,7 +49,9 @@ class D3DApp {
 
   // Convenience overrides for handling mouse input.
   virtual void OnMouseDown(WPARAM btnState, int x, int y) {}
+
   virtual void OnMouseUp(WPARAM btnState, int x, int y) {}
+
   virtual void OnMouseMove(WPARAM btnState, int x, int y) {}
 
  protected:
@@ -113,8 +116,7 @@ class D3DApp {
   UINT mDsvDescriptorSize = 0;
   UINT mCbvSrvUavDescriptorSize = 0;
 
-  // Derived class should set these in derived constructor to customize starting
-  // values.
+  // Derived class should set these in derived constructor to customize starting values.
   std::wstring mMainWndCaption = L"d3d App";
   D3D_DRIVER_TYPE md3dDriverType = D3D_DRIVER_TYPE_HARDWARE;
   DXGI_FORMAT mBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -122,8 +124,8 @@ class D3DApp {
   int mClientWidth = 800;
   int mClientHeight = 600;
 
-  // My::DX12
-  My::DX12::Device myDevice;
-  My::DX12::CmdQueue myCmdQueue;
-  My::DX12::GCmdList myGCmdList;
+  // My::MyDX12
+  My::MyDX12::Device myDevice;
+  My::MyDX12::CmdQueue myCmdQueue;
+  My::MyDX12::GCmdList myGCmdList;
 };

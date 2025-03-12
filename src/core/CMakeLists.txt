@@ -1,10 +1,9 @@
 ADD_TARGET(
-        MODE
-        STATIC
+        MODE STATIC
         SOURCE
         "${PROJECT_SOURCE_DIR}/include/MyDXRenderer"
         INC
-        include
+        "${PROJECT_SOURCE_DIR}/include"
         LIB
         My::MyFG_DX12
 )

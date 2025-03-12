@@ -3,7 +3,6 @@
 //***************************************************************************************
 
 #include <MyDX12/UploadBuffer.h>
-
 #include "../common/GeometryGenerator.h"
 #include "../common/MathHelper.h"
 #include "../common/d3dApp.h"
@@ -39,9 +38,8 @@ struct PassConstants {
 
   // Indices [0, NUM_DIR_LIGHTS) are directional lights;
   // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
-  // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS,
-  // NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS) are spot lights for a
-  // maximum of MaxLights per object.
+  // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
+  // are spot lights for a maximum of MaxLights per object.
   Light Lights[MaxLights];
 };
 
@@ -63,19 +61,18 @@ struct RenderItem {
 
   XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 
-  // Dirty flag indicating the object data has changed and we need to update the
-  // constant buffer. Because we have an object cbuffer for each FrameResource,
-  // we have to apply the update to each FrameResource.  Thus, when we modify
-  // obect data we should set NumFramesDirty = gNumFrameResources so that each
-  // frame resource gets the update.
+  // Dirty flag indicating the object data has changed and we need to update the constant buffer.
+  // Because we have an object cbuffer for each FrameResource, we have to apply the
+  // update to each FrameResource.  Thus, when we modify obect data we should set
+  // NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
   int NumFramesDirty = gNumFrameResources;
 
-  // Index into GPU constant buffer corresponding to the ObjectCB for this
-  // render item.
+  // Index into GPU constant buffer corresponding to the ObjectCB for this render item.
   UINT ObjCBIndex = -1;
 
   Material* Mat = nullptr;
-  My::DX12::MeshGeometry* Geo = nullptr;
+  My::MyDX12::MeshGeometry* Geo = nullptr;
+  //std::string Geo;
 
   // Primitive topology.
   D3D12_PRIMITIVE_TOPOLOGY PrimitiveType =
@@ -127,8 +124,8 @@ class DeferApp : public D3DApp {
   std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
  private:
-  std::vector<std::unique_ptr<My::DX12::FrameResource>> mFrameResources;
-  My::DX12::FrameResource* mCurrFrameResource = nullptr;
+  std::vector<std::unique_ptr<My::MyDX12::FrameResource>> mFrameResources;
+  My::MyDX12::FrameResource* mCurrFrameResource = nullptr;
   int mCurrFrameResourceIndex = 0;
 
   std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -154,10 +151,10 @@ class DeferApp : public D3DApp {
   POINT mLastMousePos;
 
   // frame graph
-  // My::DX12::FG::RsrcMngr fgRsrcMngr;
-  My::DX12::FG::Executor fgExecutor;
-  My::FG::Compiler fgCompiler;
-  My::FG::FrameGraph fg;
+  //My::MyFG::DX12::RsrcMngr fgRsrcMngr;
+  My::MyFG::DX12::Executor fgExecutor;
+  My::MyFG::Compiler fgCompiler;
+  My::MyFG::FrameGraph fg;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine,
@@ -169,33 +166,43 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine,
 
   try {
     DeferApp theApp(hInstance);
-    if (!theApp.Initialize()) return 0;
+    if (!theApp.Initialize())
+      return 0;
 
     int rst = theApp.Run();
     My::DXRenderer::Instance().Release();
     return rst;
-  } catch (My::DX12::Util::Exception& e) {
+  } catch (My::MyDX12::Util::Exception& e) {
     MessageBox(nullptr, e.ToString().c_str(), L"HR Failed", MB_OK);
     return 0;
   }
 }
 
-DeferApp::DeferApp(HINSTANCE hInstance) : D3DApp(hInstance) {}
+DeferApp::DeferApp(HINSTANCE hInstance)
+    : D3DApp(hInstance), fg{"frame graph"} {}
 
 DeferApp::~DeferApp() {
-  if (!myDevice.IsNull()) FlushCommandQueue();
+  if (!myDevice.IsNull())
+    FlushCommandQueue();
 }
 
 bool DeferApp::Initialize() {
-  if (!D3DApp::Initialize()) return false;
+  if (!D3DApp::Initialize())
+    return false;
 
   My::DXRenderer::Instance().Init(myDevice.raw.Get());
 
-  My::DX12::DescriptorHeapMngr::Instance().Init(myDevice.raw.Get(), 1024, 1024,
-                                                1024, 1024, 1024);
+  My::MyDX12::DescriptorHeapMngr::Instance().Init(myDevice.raw.Get(), 1024,
+                                                  1024, 1024, 1024, 1024);
+
+  //fgRsrcMngr.Init(myGCmdList, myDevice);
 
   // Reset the command list to prep for initialization commands.
   ThrowIfFailed(myGCmdList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+
+  // Get the increment size of a descriptor in this heap type.  This is hardware specific,
+  // so we have to query this information.
+  //mCbvSrvDescriptorSize = myDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
   My::DXRenderer::Instance().GetUpload().Begin();
 
@@ -224,14 +231,13 @@ bool DeferApp::Initialize() {
 void DeferApp::OnResize() {
   D3DApp::OnResize();
 
-  // The window resized, so update the aspect ratio and recompute the projection
-  // matrix.
+  // The window resized, so update the aspect ratio and recompute the projection matrix.
   XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f * MathHelper::Pi, AspectRatio(),
                                         1.0f, 1000.0f);
   XMStoreFloat4x4(&mProj, P);
 
   auto clearFGRsrcMngr = [](void* rsrcMngr) {
-    reinterpret_cast<My::DX12::FG::RsrcMngr*>(rsrcMngr)->Clear();
+    reinterpret_cast<My::MyFG::DX12::RsrcMngr*>(rsrcMngr)->Clear();
   };
   for (auto& frsrc : mFrameResources)
     frsrc->DelayUpdateResource("FrameGraphRsrcMngr", clearFGRsrcMngr);
@@ -260,14 +266,13 @@ void DeferApp::Draw(const GameTimer& gt) {
       "CommandAllocator");
 
   // Reuse the memory associated with command recording.
-  // We can only reset when the associated command lists have finished execution
-  // on the GPU.
+  // We can only reset when the associated command lists have finished execution on the GPU.
   ThrowIfFailed(cmdListAlloc->Reset());
 
-  // A command list can be reset after it has been added to the command queue
-  // via ExecuteCommandList. Reusing the command list reuses memory.
+  // A command list can be reset after it has been added to the command queue via ExecuteCommandList.
+  // Reusing the command list reuses memory.
   ThrowIfFailed(myGCmdList->Reset(cmdListAlloc, nullptr));
-  myGCmdList.SetDescriptorHeaps(My::DX12::DescriptorHeapMngr::Instance()
+  myGCmdList.SetDescriptorHeaps(My::MyDX12::DescriptorHeapMngr::Instance()
                                     .GetCSUGpuDH()
                                     ->GetDescriptorHeap());
 
@@ -275,43 +280,48 @@ void DeferApp::Draw(const GameTimer& gt) {
   myGCmdList->RSSetScissorRects(1, &mScissorRect);
 
   fg.Clear();
-  auto fgRsrcMngr = mCurrFrameResource->GetResource<My::DX12::FG::RsrcMngr>(
+  auto fgRsrcMngr = mCurrFrameResource->GetResource<My::MyFG::DX12::RsrcMngr>(
       "FrameGraphRsrcMngr");
   fgRsrcMngr->NewFrame();
   fgExecutor.NewFrame();
   ;
 
-  auto gbuffer0 = fg.AddResourceNode("GBuffer0");
-  auto gbuffer1 = fg.AddResourceNode("GBuffer1");
-  auto gbuffer2 = fg.AddResourceNode("GBuffer2");
-  auto backbuffer = fg.AddResourceNode("Back Buffer");
-  auto depthstencil = fg.AddResourceNode("Depth Stencil");
-  auto gbPass = fg.AddPassNode("GBuffer Pass", {},
-                               {gbuffer0, gbuffer1, gbuffer2, depthstencil});
-  auto deferLightingPass = fg.AddPassNode(
+  auto gbuffer0 = fg.RegisterResourceNode("GBuffer0");
+  auto gbuffer1 = fg.RegisterResourceNode("GBuffer1");
+  auto gbuffer2 = fg.RegisterResourceNode("GBuffer2");
+  auto backbuffer = fg.RegisterResourceNode("Back Buffer");
+  auto depthstencil = fg.RegisterResourceNode("Depth Stencil");
+  auto gbPass = fg.RegisterPassNode(
+      "GBuffer Pass", {}, {gbuffer0, gbuffer1, gbuffer2, depthstencil});
+  /*auto debugPass = fg.AddPassNode(
+		"Debug",
+		{ gbuffer1 },
+		{ backbuffer }
+	);*/
+  auto deferLightingPass = fg.RegisterPassNode(
       "Defer Lighting", {gbuffer0, gbuffer1, gbuffer2}, {backbuffer});
 
   (*fgRsrcMngr)
-      .RegisterTemporalRsrc(
-          gbuffer0, My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R32G32B32A32_FLOAT,
-                                                 mClientWidth, mClientHeight,
-                                                 Colors::Black))
-      .RegisterTemporalRsrc(
-          gbuffer1, My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R32G32B32A32_FLOAT,
-                                                 mClientWidth, mClientHeight,
-                                                 Colors::Black))
-      .RegisterTemporalRsrc(
-          gbuffer2, My::DX12::FG::RsrcType::RT2D(DXGI_FORMAT_R32G32B32A32_FLOAT,
-                                                 mClientWidth, mClientHeight,
-                                                 Colors::Black))
+      .RegisterTemporalRsrc(gbuffer0,
+                            My::MyFG::DX12::RsrcType::RT2D(
+                                DXGI_FORMAT_R32G32B32A32_FLOAT, mClientWidth,
+                                mClientHeight, Colors::Black))
+      .RegisterTemporalRsrc(gbuffer1,
+                            My::MyFG::DX12::RsrcType::RT2D(
+                                DXGI_FORMAT_R32G32B32A32_FLOAT, mClientWidth,
+                                mClientHeight, Colors::Black))
+      .RegisterTemporalRsrc(gbuffer2,
+                            My::MyFG::DX12::RsrcType::RT2D(
+                                DXGI_FORMAT_R32G32B32A32_FLOAT, mClientWidth,
+                                mClientHeight, Colors::Black))
 
       .RegisterRsrcTable(
           {{gbuffer0,
-            My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)},
+            My::MyDX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)},
            {gbuffer1,
-            My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)},
+            My::MyDX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)},
            {gbuffer2,
-            My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)}})
+            My::MyDX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT)}})
 
       .RegisterImportedRsrc(backbuffer,
                             {CurrentBackBuffer(), D3D12_RESOURCE_STATE_PRESENT})
@@ -319,33 +329,39 @@ void DeferApp::Draw(const GameTimer& gt) {
                                            D3D12_RESOURCE_STATE_DEPTH_WRITE})
 
       .RegisterPassRsrcs(gbPass, gbuffer0, D3D12_RESOURCE_STATE_RENDER_TARGET,
-                         My::DX12::FG::RsrcImplDesc_RTV_Null{})
+                         My::MyFG::DX12::RsrcImplDesc_RTV_Null{})
       .RegisterPassRsrcs(gbPass, gbuffer1, D3D12_RESOURCE_STATE_RENDER_TARGET,
-                         My::DX12::FG::RsrcImplDesc_RTV_Null{})
+                         My::MyFG::DX12::RsrcImplDesc_RTV_Null{})
       .RegisterPassRsrcs(gbPass, gbuffer2, D3D12_RESOURCE_STATE_RENDER_TARGET,
-                         My::DX12::FG::RsrcImplDesc_RTV_Null{})
+                         My::MyFG::DX12::RsrcImplDesc_RTV_Null{})
       .RegisterPassRsrcs(gbPass, depthstencil, D3D12_RESOURCE_STATE_DEPTH_WRITE,
-                         My::DX12::Desc::DSV::Basic(mDepthStencilFormat))
+                         My::MyDX12::Desc::DSV::Basic(mDepthStencilFormat))
+
+      /*.RegisterPassRsrcs(debugPass, gbuffer1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			My::MyDX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
+
+		.RegisterPassRsrcs(debugPass, backbuffer, D3D12_RESOURCE_STATE_RENDER_TARGET,
+			My::MyFG::DX12::RsrcImplDesc_RTV_Null{})*/
 
       .RegisterPassRsrcs(
           deferLightingPass, gbuffer0,
           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-          My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
+          My::MyDX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
       .RegisterPassRsrcs(
           deferLightingPass, gbuffer1,
           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-          My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
+          My::MyDX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
       .RegisterPassRsrcs(
           deferLightingPass, gbuffer2,
           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-          My::DX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
+          My::MyDX12::Desc::SRV::Tex2D(DXGI_FORMAT_R32G32B32A32_FLOAT))
 
       .RegisterPassRsrcs(deferLightingPass, backbuffer,
                          D3D12_RESOURCE_STATE_RENDER_TARGET,
-                         My::DX12::FG::RsrcImplDesc_RTV_Null{});
+                         My::MyFG::DX12::RsrcImplDesc_RTV_Null{});
 
   fgExecutor.RegisterPassFunc(
-      gbPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
+      gbPass, [&](const My::MyFG::DX12::PassRsrcs& rsrcs) {
         myGCmdList->SetPipelineState(
             My::DXRenderer::Instance().GetPSO("geometry"));
         auto gb0 = rsrcs.find(gbuffer0)->second;
@@ -369,7 +385,7 @@ void DeferApp::Draw(const GameTimer& gt) {
 
         auto passCB =
             mCurrFrameResource
-                ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
+                ->GetResource<My::MyDX12::ArrayUploadBuffer<PassConstants>>(
                     "gbPass constants")
                 ->GetResource();
         myGCmdList->SetGraphicsRootConstantBufferView(
@@ -378,8 +394,35 @@ void DeferApp::Draw(const GameTimer& gt) {
         DrawRenderItems(myGCmdList.raw.Get(), mOpaqueRitems);
       });
 
+  //fgExecutor.RegisterPassFunc(
+  //	debugPass,
+  //	[&](const My::MyFG::DX12::PassRsrcs& rsrcs) {
+  //		myGCmdList->SetPipelineState(My::DXRenderer::Instance().GetPSO("screen"));
+  //		auto img = rsrcs.find(gbuffer1)->second;
+  //		auto bb = rsrcs.find(backbuffer)->second;
+  //
+  //		//myGCmdList->CopyResource(bb.resource, rt.resource);
+
+  //		// Clear the render texture and depth buffer.
+  //		myGCmdList.ClearRenderTargetView(bb.cpuHandle, Colors::LightSteelBlue);
+
+  //		// Specify the buffers we are going to render to.
+  //		//myGCmdList.OMSetRenderTarget(bb.cpuHandle, ds.cpuHandle);
+  //		myGCmdList->OMSetRenderTargets(1, &bb.cpuHandle, false, nullptr);
+
+  //		myGCmdList->SetGraphicsRootSignature(My::DXRenderer::Instance().GetRootSignature("screen"));
+
+  //		myGCmdList->SetGraphicsRootDescriptorTable(0, img.gpuHandle);
+
+  //		myGCmdList->IASetVertexBuffers(0, 0, nullptr);
+  //		myGCmdList->IASetIndexBuffer(nullptr);
+  //		myGCmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  //		myGCmdList->DrawInstanced(6, 1, 0, 0);
+  //	}
+  //);
+
   fgExecutor.RegisterPassFunc(
-      deferLightingPass, [&](const My::DX12::FG::PassRsrcs& rsrcs) {
+      deferLightingPass, [&](const My::MyFG::DX12::PassRsrcs& rsrcs) {
         myGCmdList->SetPipelineState(
             My::DXRenderer::Instance().GetPSO("defer lighting"));
         auto gb0 = rsrcs.find(gbuffer0)->second;
@@ -388,13 +431,13 @@ void DeferApp::Draw(const GameTimer& gt) {
 
         auto bb = rsrcs.find(backbuffer)->second;
 
-        // myGCmdList->CopyResource(bb.resource, rt.resource);
+        //myGCmdList->CopyResource(bb.resource, rt.resource);
 
         // Clear the render texture and depth buffer.
         myGCmdList.ClearRenderTargetView(bb.cpuHandle, Colors::LightSteelBlue);
 
         // Specify the buffers we are going to render to.
-        // myGCmdList.OMSetRenderTarget(bb.cpuHandle, ds.cpuHandle);
+        //myGCmdList.OMSetRenderTarget(bb.cpuHandle, ds.cpuHandle);
         myGCmdList->OMSetRenderTargets(1, &bb.cpuHandle, false, nullptr);
 
         myGCmdList->SetGraphicsRootSignature(
@@ -437,7 +480,9 @@ void DeferApp::OnMouseDown(WPARAM btnState, int x, int y) {
   SetCapture(mhMainWnd);
 }
 
-void DeferApp::OnMouseUp(WPARAM btnState, int x, int y) { ReleaseCapture(); }
+void DeferApp::OnMouseUp(WPARAM btnState, int x, int y) {
+  ReleaseCapture();
+}
 
 void DeferApp::OnMouseMove(WPARAM btnState, int x, int y) {
   if ((btnState & MK_LBUTTON) != 0) {
@@ -491,7 +536,7 @@ void DeferApp::AnimateMaterials(const GameTimer& gt) {}
 void DeferApp::UpdateObjectCBs(const GameTimer& gt) {
   auto currObjectCB =
       mCurrFrameResource
-          ->GetResource<My::DX12::ArrayUploadBuffer<ObjectConstants>>(
+          ->GetResource<My::MyDX12::ArrayUploadBuffer<ObjectConstants>>(
               "ArrayUploadBuffer<ObjectConstants>");
   for (auto& e : mAllRitems) {
     // Only update the cbuffer data if the constants have changed.
@@ -516,11 +561,11 @@ void DeferApp::UpdateObjectCBs(const GameTimer& gt) {
 void DeferApp::UpdateMaterialCBs(const GameTimer& gt) {
   auto currMaterialCB =
       mCurrFrameResource
-          ->GetResource<My::DX12::ArrayUploadBuffer<MaterialConstants>>(
+          ->GetResource<My::MyDX12::ArrayUploadBuffer<MaterialConstants>>(
               "ArrayUploadBuffer<MaterialConstants>");
   for (auto& e : mMaterials) {
-    // Only update the cbuffer data if the constants have changed.  If the
-    // cbuffer data changes, it needs to be updated for each FrameResource.
+    // Only update the cbuffer data if the constants have changed.  If the cbuffer
+    // data changes, it needs to be updated for each FrameResource.
     Material* mat = e.second.get();
     if (mat->NumFramesDirty > 0) {
       XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
@@ -575,7 +620,7 @@ void DeferApp::UpdateMainPassCB(const GameTimer& gt) {
 
   auto currPassCB =
       mCurrFrameResource
-          ->GetResource<My::DX12::ArrayUploadBuffer<PassConstants>>(
+          ->GetResource<My::MyDX12::ArrayUploadBuffer<PassConstants>>(
               "gbPass constants");
   currPassCB->Set(0, mMainPassCB);
 }
@@ -707,7 +752,7 @@ void DeferApp::BuildShapeGeometry() {
   GeometryGenerator geoGen;
   GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
 
-  My::DX12::SubmeshGeometry boxSubmesh;
+  My::MyDX12::SubmeshGeometry boxSubmesh;
   boxSubmesh.IndexCount = (UINT)box.Indices32.size();
   boxSubmesh.StartIndexLocation = 0;
   boxSubmesh.BaseVertexLocation = 0;
@@ -734,14 +779,14 @@ void DeferApp::BuildShapeGeometry() {
 }
 
 void DeferApp::BuildPSOs() {
-  auto screenPsoDesc = My::DX12::Desc::PSO::Basic(
+  auto screenPsoDesc = My::MyDX12::Desc::PSO::Basic(
       My::DXRenderer::Instance().GetRootSignature("screen"), nullptr, 0,
       My::DXRenderer::Instance().GetShaderByteCode("screenVS"),
       My::DXRenderer::Instance().GetShaderByteCode("screenPS"),
       mBackBufferFormat, DXGI_FORMAT_UNKNOWN);
   My::DXRenderer::Instance().RegisterPSO("screen", &screenPsoDesc);
 
-  auto geometryPsoDesc = My::DX12::Desc::PSO::MRT(
+  auto geometryPsoDesc = My::MyDX12::Desc::PSO::MRT(
       My::DXRenderer::Instance().GetRootSignature("geometry"),
       mInputLayout.data(), (UINT)mInputLayout.size(),
       My::DXRenderer::Instance().GetShaderByteCode("geometryVS"),
@@ -749,7 +794,7 @@ void DeferApp::BuildPSOs() {
       DXGI_FORMAT_R32G32B32A32_FLOAT, mDepthStencilFormat);
   My::DXRenderer::Instance().RegisterPSO("geometry", &geometryPsoDesc);
 
-  auto deferLightingPsoDesc = My::DX12::Desc::PSO::Basic(
+  auto deferLightingPsoDesc = My::MyDX12::Desc::PSO::Basic(
       My::DXRenderer::Instance().GetRootSignature("defer lighting"), nullptr, 0,
       My::DXRenderer::Instance().GetShaderByteCode("deferLightingVS"),
       My::DXRenderer::Instance().GetShaderByteCode("deferLightingPS"),
@@ -760,7 +805,7 @@ void DeferApp::BuildPSOs() {
 
 void DeferApp::BuildFrameResources() {
   for (int i = 0; i < gNumFrameResources; ++i) {
-    auto fr = std::make_unique<My::DX12::FrameResource>(mFence.Get());
+    auto fr = std::make_unique<My::MyDX12::FrameResource>(mFence.Get());
 
     ID3D12CommandAllocator* allocator;
     ThrowIfFailed(myDevice->CreateCommandAllocator(
@@ -771,18 +816,18 @@ void DeferApp::BuildFrameResources() {
     });
 
     fr->RegisterResource("gbPass constants",
-                         new My::DX12::ArrayUploadBuffer<PassConstants>{
+                         new My::MyDX12::ArrayUploadBuffer<PassConstants>{
                              myDevice.raw.Get(), 1, true});
 
     fr->RegisterResource("ArrayUploadBuffer<MaterialConstants>",
-                         new My::DX12::ArrayUploadBuffer<MaterialConstants>{
+                         new My::MyDX12::ArrayUploadBuffer<MaterialConstants>{
                              myDevice.raw.Get(), mMaterials.size(), true});
 
     fr->RegisterResource("ArrayUploadBuffer<ObjectConstants>",
-                         new My::DX12::ArrayUploadBuffer<ObjectConstants>{
+                         new My::MyDX12::ArrayUploadBuffer<ObjectConstants>{
                              myDevice.raw.Get(), mAllRitems.size(), true});
 
-    auto fgRsrcMngr = new My::DX12::FG::RsrcMngr;
+    auto fgRsrcMngr = new My::MyFG::DX12::RsrcMngr;
     fgRsrcMngr->Init(myGCmdList, myDevice);
     fr->RegisterResource("FrameGraphRsrcMngr", fgRsrcMngr);
 
@@ -817,24 +862,25 @@ void DeferApp::BuildRenderItems() {
   mAllRitems.push_back(std::move(boxRitem));
 
   // All the render items are opaque.
-  for (auto& e : mAllRitems) mOpaqueRitems.push_back(e.get());
+  for (auto& e : mAllRitems)
+    mOpaqueRitems.push_back(e.get());
 }
 
 void DeferApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList,
                                const std::vector<RenderItem*>& ritems) {
   UINT objCBByteSize =
-      My::DX12::Util::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+      My::MyDX12::Util::CalcConstantBufferByteSize(sizeof(ObjectConstants));
   UINT matCBByteSize =
-      My::DX12::Util::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+      My::MyDX12::Util::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
   auto objectCB =
       mCurrFrameResource
-          ->GetResource<My::DX12::ArrayUploadBuffer<ObjectConstants>>(
+          ->GetResource<My::MyDX12::ArrayUploadBuffer<ObjectConstants>>(
               "ArrayUploadBuffer<ObjectConstants>")
           ->GetResource();
   auto matCB =
       mCurrFrameResource
-          ->GetResource<My::DX12::ArrayUploadBuffer<MaterialConstants>>(
+          ->GetResource<My::MyDX12::ArrayUploadBuffer<MaterialConstants>>(
               "ArrayUploadBuffer<MaterialConstants>")
           ->GetResource();
 
@@ -861,8 +907,8 @@ void DeferApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList,
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> DeferApp::GetStaticSamplers() {
-  // Applications usually only need a handful of samplers.  So just define them
-  // all up front and keep them available as part of the root signature.
+  // Applications usually only need a handful of samplers.  So just define them all up front
+  // and keep them available as part of the root signature.
 
   const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
       0,                                 // shaderRegister
