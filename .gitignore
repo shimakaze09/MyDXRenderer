@@ -707,6 +707,7 @@ FodyWeavers.xsd
 *.pdf
 
 *.mp4
+*.xmind
 
 # Directories
 resources/

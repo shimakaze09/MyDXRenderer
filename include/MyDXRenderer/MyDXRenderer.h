@@ -4,9 +4,10 @@
 
 #pragma once
 
-#include <string>
-
 #include <MyDX12/MyDX12.h>
+
+#include <array>
+#include <string>
 
 namespace My {
 class DXRenderer {
@@ -78,6 +79,14 @@ class DXRenderer {
   ID3D12RootSignature* GetRootSignature(const std::string& name) const;
 
   ID3D12PipelineState* GetPSO(const std::string& name) const;
+
+  // 1. point wrap
+  // 2. point clamp
+  // 3. linear wrap
+  // 4. linear clamp
+  // 5. anisotropic wrap
+  // 6. anisotropic clamp
+  std::array<CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers() const;
 
  private:
   struct Impl;
