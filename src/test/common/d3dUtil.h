@@ -7,7 +7,7 @@
 #pragma once
 
 #include <MyDX12/MyDX12.h>
-#include <MyFG/DX12/dx12.h>
+#include <MyFG/MyFG.h>
 #include <MyDXRenderer/MyDXRenderer.h>
 
 #include <windows.h>

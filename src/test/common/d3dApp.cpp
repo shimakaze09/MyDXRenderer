@@ -442,7 +442,7 @@ bool D3DApp::InitDirect3D()
 			IID_PPV_ARGS(&myDevice.raw)));
 	}
 
-	ThrowIfFailed(myDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+	ThrowIfFailed(myDevice->CreateFence(mCurrentFence, D3D12_FENCE_FLAG_NONE,
 		IID_PPV_ARGS(&mFence)));
 
 	mRtvDescriptorSize = myDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -543,7 +543,7 @@ void D3DApp::FlushCommandQueue()
 	// Wait until the GPU has completed commands up to this fence point.
     if(mFence->GetCompletedValue() < mCurrentFence)
 	{
-		HANDLE eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACCESS);
+		HANDLE eventHandle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
 
         // Fire event when GPU hits current fence.
         ThrowIfFailed(mFence->SetEventOnCompletion(mCurrentFence, eventHandle));

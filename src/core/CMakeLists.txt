@@ -5,5 +5,5 @@ ADD_TARGET(
         INC
         "${PROJECT_SOURCE_DIR}/include"
         LIB
-        My::MyFG_DX12
+        My::MyDX12_core
 )
